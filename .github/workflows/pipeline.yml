@@ -1,9 +1,6 @@
 name: pipeline
 
-on:
-  push:
-    branches:
-      - master
+on: [push]
 
 jobs:
   call-docker-image-workflow:
