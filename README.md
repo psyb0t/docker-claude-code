@@ -18,15 +18,7 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 
 ## ⚙️ Quick Start
 
-### 🔨 Build the Image
-
-```bash
-git clone https://github.com/psyb0t/docker-claude-code.git
-cd docker-claude-code
-docker build -t psyb0t/claude-code .
-```
-
-### 💡 Recommended: Create a Wrapper Script
+###  Create a Wrapper Script
 
 Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
 
@@ -36,7 +28,7 @@ docker run --rm -it \
 	-e CLAUDE_TOKEN="" \
 	-e GH_NAME="claude" \
 	-e GH_EMAIL="claude@claude.ai" \
-	-v /home/bw/.ssh/claude-code:/home/claude/.ssh \
+	-v /home/user/.ssh/claude-code:/home/claude/.ssh \
 	-v "$(pwd)":/workspace \
 	--name claude-code \
 	psyb0t/claude-code:latest "$@"
@@ -67,7 +59,7 @@ ssh-keygen -t ed25519 -C "claude@claude.ai"
 Save it somewhere like:
 
 ```
-/home/bw/.ssh/claude-code
+/home/user/.ssh/claude-code
 ```
 
 Then add the public key (`id_ed25519.pub`) to your GitHub account or wherever you push code.
