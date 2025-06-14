@@ -1,4 +1,3 @@
-# Use a stable Ubuntu base image
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -8,7 +7,28 @@ RUN apt-get update && \
     git \
     curl \
     gnupg \
-    ca-certificates && \
+    ca-certificates \
+    build-essential \
+    make \
+    cmake \
+    python3 \
+    python3-pip \
+    python-is-python3 \
+    nano \
+    vim \
+    htop \
+    tmux \
+    wget \
+    unzip \
+    zip \
+    tar \
+    net-tools \
+    iputils-ping \
+    dnsutils \
+    software-properties-common \
+    lsb-release \
+    pkg-config \
+    libssl-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /etc/apt/keyrings && \
@@ -32,7 +52,7 @@ mkdir -p "\$HOME/.claude"
 cat <<CONFIG > "\$HOME/.claude/settings.json"
 {
   "apiKeyHelper": "echo \$CLAUDE_TOKEN",
-  "includeCoAuthoredBy": false,
+  "includeCoAuthoredBy": false
 }
 CONFIG
 
