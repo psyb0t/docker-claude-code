@@ -51,7 +51,6 @@ mkdir -p "\$HOME/.claude"
 
 cat <<CONFIG > "\$HOME/.claude/settings.json"
 {
-  "apiKeyHelper": "echo \$CLAUDE_TOKEN",
   "includeCoAuthoredBy": false
 }
 CONFIG

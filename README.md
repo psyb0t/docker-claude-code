@@ -10,22 +10,21 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 
 ## 🎞️ What’s Inside?
 
-* Ubuntu 22.04 (stable and unfeeling)
-* Node.js 20.x (blessed by the Node gods)
-* `git` + `curl` + Claude CLI
-* Auto-Git config based on env vars
-* A dark little bash startup spell
+- Ubuntu 22.04 (stable and unfeeling)
+- Node.js 20.x (blessed by the Node gods)
+- `git` + `curl` + Claude CLI
+- Auto-Git config based on env vars
+- A dark little bash startup spell
 
 ## ⚙️ Quick Start
 
-###  Create a Wrapper Script
+### Create a Wrapper Script
 
 Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
 
 ```bash
 #!/usr/bin/env bash
 docker run --rm -it \
-	-e CLAUDE_TOKEN="" \
 	-e GH_NAME="claude" \
 	-e GH_EMAIL="claude@claude.ai" \
 	-v /home/user/.ssh/claude-code:/home/claude/.ssh \
@@ -68,7 +67,6 @@ Then add the public key (`id_ed25519.pub`) to your GitHub account or wherever yo
 
 ```bash
 docker run --rm -it \
-  -e CLAUDE_TOKEN="your_api_key_here" \
   -e GH_NAME="Your Name" \
   -e GH_EMAIL="your@email.com" \
   -v ~/.ssh:/home/claude/.ssh \
@@ -78,17 +76,16 @@ docker run --rm -it \
 
 ## 🔐 ENV Vars
 
-| Variable       | What it does                      |
-| -------------- | --------------------------------- |
-| `CLAUDE_TOKEN` | Your API key (required)           |
-| `GH_NAME`      | Git commit name inside the image  |
-| `GH_EMAIL`     | Git commit email inside the image |
+| Variable   | What it does                      |
+| ---------- | --------------------------------- |
+| `GH_NAME`  | Git commit name inside the image  |
+| `GH_EMAIL` | Git commit email inside the image |
 
 ## 🦴 Gotchas
 
-* This tool uses `--dangerously-skip-permissions`. Because Claude likes to live fast and break sandboxes.
-* SSH keys are mounted to allow commit/push shenanigans. Keep ‘em safe, goblin.
-* Volumes mount the current directory into the container workspace. That’s your playground.
+- This tool uses `--dangerously-skip-permissions`. Because Claude likes to live fast and break sandboxes.
+- SSH keys are mounted to allow commit/push shenanigans. Keep ‘em safe, goblin.
+- Volumes mount the current directory into the container workspace. That’s your playground.
 
 ## 📜 License
 
