@@ -60,6 +60,7 @@ export CLAUDE_CONFIG_DIR="\$HOME/.claude"
 git config --global user.name "\$GH_NAME"
 git config --global user.email "\$GH_EMAIL"
 
+claude update
 exec claude --dangerously-skip-permissions "\$@"
 EOF
 
