@@ -24,10 +24,12 @@ Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
 
 ```bash
 #!/usr/bin/env bash
+mkdir -p /home/user/.claude
 docker run --rm -it \
 	-e GH_NAME="claude" \
 	-e GH_EMAIL="claude@claude.ai" \
 	-v /home/user/.ssh/claude-code:/home/claude/.ssh \
+	-v /home/user/.claude:/home/claude/.claude \
 	-v "$(pwd)":/workspace \
 	--name claude-code \
 	psyb0t/claude-code:latest "$@"
@@ -70,6 +72,7 @@ docker run --rm -it \
   -e GH_NAME="Your Name" \
   -e GH_EMAIL="your@email.com" \
   -v ~/.ssh:/home/claude/.ssh \
+  -v ~/.claude:/home/claude/.claude \
   -v "$(pwd)":/workspace \
   psyb0t/claude-code:latest
 ```
