@@ -63,18 +63,6 @@ Save it somewhere like:
 
 Then add the public key (`id_ed25519.pub`) to your GitHub account or wherever you push code.
 
-### 🧪 Or Run Manually (if you're a masochist)
-
-```bash
-docker run --rm -it \
-  -e GH_NAME="Your Name" \
-  -e GH_EMAIL="your@email.com" \
-  -v ~/.ssh:/home/claude/.ssh \
-  -v ~/.claude:/home/claude/.claude \
-  -v "$(pwd)":/workspace \
-  psyb0t/claude-code:latest
-```
-
 ## 🔐 ENV Vars
 
 | Variable   | What it does                      |
