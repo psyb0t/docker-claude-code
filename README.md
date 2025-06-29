@@ -44,9 +44,7 @@ chmod +x /usr/local/bin/claude
 Now you can summon Claude like so:
 
 ```bash
-claude init
-claude add
-claude commit -m "summoned from the void"
+claude
 ```
 
 ### 🥪 Generate SSH Keys
