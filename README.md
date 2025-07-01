@@ -18,33 +18,10 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 
 ## ⚙️ Quick Start
 
-### Create a Wrapper Script
-
-Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
+### Create settings dir
 
 ```bash
-#!/usr/bin/env bash
-mkdir -p /home/user/.claude
-docker run --rm -it \
-	-e GH_NAME="claude" \
-	-e GH_EMAIL="claude@claude.ai" \
-	-v /home/user/.ssh/claude-code:/home/claude/.ssh \
-	-v /home/user/.claude:/home/claude/.claude \
-	-v "$(pwd)":/workspace \
-	--name claude-code \
-	psyb0t/claude-code:latest "$@"
-```
-
-Make it executable:
-
-```bash
-chmod +x /usr/local/bin/claude
-```
-
-Now you can summon Claude like so:
-
-```bash
-claude
+mkdir -p ~/.claude
 ```
 
 ### 🥪 Generate SSH Keys
@@ -69,6 +46,47 @@ Then add the public key (`id_ed25519.pub`) to your GitHub account or wherever yo
 | ---------- | --------------------------------- |
 | `GH_NAME`  | Git commit name inside the image  |
 | `GH_EMAIL` | Git commit email inside the image |
+
+### Create a Wrapper Script
+
+Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
+
+```bash
+#!/usr/bin/env bash
+
+# Convert PWD to a valid container name (slashes to underscores)
+sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
+container_name="claude-${sanitized_pwd}"
+
+# Check if the container exists
+if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+    echo "🟢 Container '$container_name' exists. Starting and attaching..."
+    docker start "$container_name"
+    docker attach "$container_name"
+else
+    echo "🔧 Creating and running new container: '$container_name'"
+    docker run -it \
+        -e GH_NAME="claude" \
+        -e GH_EMAIL="claude@example.com" \
+        -v /home/user/.ssh/claude-code:/home/claude/.ssh \
+        -v /home/user/.claude:/home/claude/.claude \
+        -v "$(pwd)":/workspace \
+        --name "$container_name" \
+        psyb0t/claude-code:latest "$@"
+fi
+```
+
+Make it executable:
+
+```bash
+chmod +x /usr/local/bin/claude
+```
+
+Now you can summon Claude like so:
+
+```bash
+claude
+```
 
 ## 🦴 Gotchas
 

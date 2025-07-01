@@ -2,80 +2,58 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base packages
+# base install dump
 RUN apt-get update && \
     apt-get install -y \
-    git \
-    curl \
-    gnupg \
-    ca-certificates \
-    build-essential \
-    make \
-    cmake \
-    python3 \
-    python3-pip \
-    python-is-python3 \
-    nano \
-    vim \
-    htop \
-    tmux \
-    wget \
-    unzip \
-    zip \
-    tar \
-    net-tools \
-    iputils-ping \
-    dnsutils \
-    software-properties-common \
-    lsb-release \
-    pkg-config \
-    libssl-dev && \
+    git curl gnupg ca-certificates build-essential make cmake \
+    python3 python3-pip python-is-python3 \
+    nano vim htop tmux wget unzip zip tar \
+    net-tools iputils-ping dnsutils software-properties-common \
+    lsb-release pkg-config libssl-dev sudo && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20
+# node 20
 RUN mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Claude tool globally
+# install claude cli
 RUN npm install -g @anthropic-ai/claude-code@latest
 
-# Create user 'claude' with UID 1000
-RUN useradd -u 1000 -ms /bin/bash claude
+# create 'claude' user with full sudo access
+RUN useradd -u 1000 -ms /bin/bash claude && \
+    usermod -aG sudo claude
 
-# Create workspace
+# grant passwordless sudo to claude for EVERYTHING
+COPY <<EOF /etc/sudoers.d/claude-nopass
+claude ALL=(ALL) NOPASSWD:ALL
+EOF
+
+RUN chmod 440 /etc/sudoers.d/claude-nopass
+
+# workspace and warm cache
 WORKDIR /workspace
 
-# Add the startup script
+# start script – your format, your style, no bloated bs
 COPY <<EOF /home/claude/start_claude.sh
 #!/bin/bash
 
 mkdir -p "\$HOME/.claude"
-
-cat <<CONFIG > "\$HOME/.claude/settings.json"
-{
-  "includeCoAuthoredBy": false
-}
-CONFIG
-
 export CLAUDE_CONFIG_DIR="\$HOME/.claude"
 
 git config --global user.name "\$GH_NAME"
 git config --global user.email "\$GH_EMAIL"
 
-claude update
+sudo claude update
 exec claude --dangerously-skip-permissions "\$@"
 EOF
 
-# Make sure script is owned by claude and executable
 RUN chmod +x /home/claude/start_claude.sh && \
     chown -R 1000:1000 /home/claude
 
-# Switch to claude user (UID 1000)
+# run as claude, master of his sandbox
 USER claude
-
-# Set entrypoint
 ENTRYPOINT ["/home/claude/start_claude.sh"]
