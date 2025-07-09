@@ -60,7 +60,8 @@ container_name="claude-${sanitized_pwd}"
 
 # Check if the container exists
 if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🟢 Container '$container_name' exists. Starting and attaching..."
+    echo "🟢 Container '$container_name' exists."
+    docker stop "$container_name"
     docker start "$container_name"
     docker attach "$container_name"
 else
