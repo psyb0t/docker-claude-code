@@ -8,10 +8,13 @@ This container gives you the [Claude Code CLI](https://www.npmjs.com/package/@an
 Because installing things natively is for suckers.
 This image is for devs who live dangerously, commit anonymously, and like their AI tools in containers.
 
-## 🎞️ What’s Inside?
+## 🎞️ What's Inside?
 
 - Ubuntu 22.04 (stable and unfeeling)
-- Node.js 20.x (blessed by the Node gods)
+- Go 1.24 (gopher approved)
+- Latest Node.js (blessed by the Node gods)
+- Python 3 with pip, flake8, black, isort, autoflake, pyright, mypy, vulture
+- Docker CE with Docker Compose (full containerization chaos)
 - `git` + `curl` + Claude CLI
 - Auto-Git config based on env vars
 - A dark little bash startup spell
@@ -72,6 +75,7 @@ else
         -v /home/user/.ssh/claude-code:/home/claude/.ssh \
         -v /home/user/.claude:/home/claude/.claude \
         -v "$(pwd)":/workspace \
+        -v /var/run/docker.sock:/var/run/docker.sock \
         --name "$container_name" \
         psyb0t/claude-code:latest "$@"
 fi
@@ -92,8 +96,9 @@ claude
 ## 🦴 Gotchas
 
 - This tool uses `--dangerously-skip-permissions`. Because Claude likes to live fast and break sandboxes.
-- SSH keys are mounted to allow commit/push shenanigans. Keep ‘em safe, goblin.
-- Volumes mount the current directory into the container workspace. That’s your playground.
+- SSH keys are mounted to allow commit/push shenanigans. Keep 'em safe, goblin.
+- Volumes mount the current directory into the container workspace. That's your playground.
+- Docker socket is mounted so Claude can spawn containers within containers. Docker-in-Docker madness enabled.
 
 ## 📜 License
 

@@ -9,23 +9,44 @@ RUN apt-get update && \
     python3 python3-pip python-is-python3 \
     nano vim htop tmux wget unzip zip tar \
     net-tools iputils-ping dnsutils software-properties-common \
-    lsb-release pkg-config libssl-dev sudo && \
+    lsb-release pkg-config libssl-dev sudo apt-transport-https && \
     rm -rf /var/lib/apt/lists/*
 
-# node 20
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && \
+# install go 1.24.5
+RUN curl -fsSL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz | tar -xzC /usr/local && \
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/environment && \
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/bash.bashrc
+ENV PATH=$PATH:/usr/local/go/bin
+
+# install latest node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# install python linters and formatters
+RUN pip3 install --no-cache-dir \
+    flake8 \
+    black \
+    isort \
+    autoflake \
+    pyright \
+    mypy \
+    vulture
+
+# install docker
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
 # install claude cli
 RUN npm install -g @anthropic-ai/claude-code@latest
 
-# create 'claude' user with full sudo access
+# create 'claude' user with full sudo access and docker group
 RUN useradd -u 1000 -ms /bin/bash claude && \
-    usermod -aG sudo claude
+    usermod -aG sudo claude && \
+    usermod -aG docker claude
 
 # grant passwordless sudo to claude for EVERYTHING
 COPY <<EOF /etc/sudoers.d/claude-nopass
