@@ -38,7 +38,7 @@ ssh-keygen -t ed25519 -C "claude@claude.ai"
 Save it somewhere like:
 
 ```
-/home/user/.ssh/claude-code
+$HOME/.ssh/claude-code
 ```
 
 Then add the public key (`id_ed25519.pub`) to your GitHub account or wherever you push code.
@@ -72,8 +72,8 @@ else
     docker run -it \
         -e GH_NAME="claude" \
         -e GH_EMAIL="claude@example.com" \
-        -v /home/user/.ssh/claude-code:/home/claude/.ssh \
-        -v /home/user/.claude:/home/claude/.claude \
+        -v $HOME/.ssh/claude-code:/home/claude/.ssh \
+        -v $HOME/.claude:/home/claude/.claude \
         -v "$(pwd)":/workspace \
         -v /var/run/docker.sock:/var/run/docker.sock \
         --name "$container_name" \
@@ -103,7 +103,3 @@ claude
 ## 📜 License
 
 [WTFPL](http://www.wtfpl.net/) – do what the fuck you want to.
-
-## 🔮 Bonus Points
-
-Use it with aliases, wrap it in `fzf`, call it from `neovim`, or trigger it via voice command while summoning eldritch horrors. Your machine, your madness.
