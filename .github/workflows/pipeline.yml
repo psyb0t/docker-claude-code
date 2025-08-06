@@ -8,7 +8,7 @@ jobs:
 
     with:
       repository_name: psyb0t/claude-code
-      target_platforms: "linux/amd64"
+      target_platforms: "linux/amd64,linux/arm64"
 
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
