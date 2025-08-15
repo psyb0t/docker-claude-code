@@ -21,6 +21,16 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 
 ## ⚙️ Quick Start
 
+### 🚀 Quick Install
+
+There's an install script that sets everything up automatically:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
+```
+
+Or if you prefer manual control:
+
 ### Create settings dir
 
 ```bash
@@ -29,7 +39,7 @@ mkdir -p ~/.claude
 
 ### 🥪 Generate SSH Keys
 
-If you don’t have an SSH key pair yet, conjure one with:
+If you don't have an SSH key pair yet, conjure one with:
 
 ```bash
 ssh-keygen -t ed25519 -C "claude@claude.ai"
@@ -49,16 +59,6 @@ Then add the public key (`id_ed25519.pub`) to your GitHub account or wherever yo
 | ---------- | --------------------------------- |
 | `GH_NAME`  | Git commit name inside the image  |
 | `GH_EMAIL` | Git commit email inside the image |
-
-### 🚀 Quick Install
-
-There's an install script that sets everything up automatically:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
-```
-
-Or if you prefer manual control:
 
 ### Create a Wrapper Script
 
