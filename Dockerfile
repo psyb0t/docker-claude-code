@@ -16,8 +16,9 @@ RUN apt-get update && \
     httpie gh \
     && rm -rf /var/lib/apt/lists/*
 
-# install go 1.24.5
-RUN curl -fsSL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz | tar -xzC /usr/local && \
+# install go 1.24.5 (detect architecture)
+ARG TARGETARCH
+RUN curl -fsSL https://go.dev/dl/go1.24.5.linux-${TARGETARCH}.tar.gz | tar -xzC /usr/local && \
     echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/environment && \
     echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/bash.bashrc
 ENV PATH=$PATH:/usr/local/go/bin
@@ -26,13 +27,13 @@ ENV PATH=$PATH:/usr/local/go/bin
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin latest
 
 # install additional go dev tools
-RUN go install golang.org/x/tools/gopls@latest && \
-    go install github.com/go-delve/delve/cmd/dlv@latest && \
-    go install honnef.co/go/tools/cmd/staticcheck@latest && \
-    go install github.com/fatih/gomodifytags@latest && \
-    go install github.com/josharian/impl@latest && \
-    go install github.com/cweill/gotests/gotests@latest && \
-    go install mvdan.cc/gofumpt@latest
+RUN CGO_ENABLED=0 go install golang.org/x/tools/gopls@latest && \
+    CGO_ENABLED=0 go install github.com/go-delve/delve/cmd/dlv@latest && \
+    CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && \
+    CGO_ENABLED=0 go install github.com/fatih/gomodifytags@latest && \
+    CGO_ENABLED=0 go install github.com/josharian/impl@latest && \
+    CGO_ENABLED=0 go install github.com/cweill/gotests/gotests@latest && \
+    CGO_ENABLED=0 go install mvdan.cc/gofumpt@latest
 
 # install terraform, kubectl, helm manually
 RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg && \
