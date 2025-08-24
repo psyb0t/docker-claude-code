@@ -9,8 +9,12 @@ RUN apt-get update && \
     python3 python3-pip python-is-python3 \
     nano vim htop tmux wget unzip zip tar \
     net-tools iputils-ping dnsutils software-properties-common \
-    lsb-release pkg-config libssl-dev sudo apt-transport-https && \
-    rm -rf /var/lib/apt/lists/*
+    lsb-release pkg-config libssl-dev sudo apt-transport-https \
+    jq tree fd-find ripgrep bat exa silversearcher-ag \
+    shellcheck shfmt clang-format valgrind gdb strace ltrace \
+    sqlite3 postgresql-client mysql-client redis-tools \
+    httpie gh terraform kubectl helm \
+    && rm -rf /var/lib/apt/lists/*
 
 # install go 1.24.5
 RUN curl -fsSL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz | tar -xzC /usr/local && \
@@ -18,12 +22,24 @@ RUN curl -fsSL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz | tar -xzC /usr/loc
     echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/bash.bashrc
 ENV PATH=$PATH:/usr/local/go/bin
 
+# install golangci-lint + other go tools
+RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin latest
+
+# install additional go dev tools
+RUN go install golang.org/x/tools/gopls@latest && \
+    go install github.com/go-delve/delve/cmd/dlv@latest && \
+    go install honnef.co/go/tools/cmd/staticcheck@latest && \
+    go install github.com/fatih/gomodifytags@latest && \
+    go install github.com/josharian/impl@latest && \
+    go install github.com/cweill/gotests/gotests@latest && \
+    go install mvdan.cc/gofumpt@latest
+
 # install latest node.js
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# install python linters and formatters
+# install python linters and formatters + more dev tools
 RUN pip3 install --no-cache-dir \
     flake8 \
     black \
@@ -31,7 +47,16 @@ RUN pip3 install --no-cache-dir \
     autoflake \
     pyright \
     mypy \
-    vulture
+    vulture \
+    pytest \
+    pytest-cov \
+    requests \
+    beautifulsoup4 \
+    lxml \
+    pyyaml \
+    toml \
+    pipenv \
+    poetry
 
 # install docker
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
@@ -40,8 +65,27 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
-# install claude cli
-RUN npm install -g @anthropic-ai/claude-code@latest
+# install claude cli + additional npm tools
+RUN npm install -g @anthropic-ai/claude-code@latest \
+    eslint \
+    prettier \
+    typescript \
+    ts-node \
+    @typescript-eslint/parser \
+    @typescript-eslint/eslint-plugin \
+    nodemon \
+    pm2 \
+    yarn \
+    pnpm \
+    create-react-app \
+    @vue/cli \
+    @angular/cli \
+    express-generator \
+    newman \
+    http-server \
+    serve \
+    lighthouse \
+    @storybook/cli
 
 # create 'claude' user with full sudo access and docker group
 RUN useradd -u 1000 -ms /bin/bash claude && \
