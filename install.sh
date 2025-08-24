@@ -15,27 +15,20 @@ echo "📝 Creating claude command script..."
 sudo tee /usr/local/bin/claude << 'EOF' > /dev/null
 #!/usr/bin/env bash
 
-echo "🔍 Checking current directory: $PWD"
-
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
 container_name="claude-${sanitized_pwd}"
 
-echo "🏷️ Container name will be: $container_name"
-
 # Check if the container exists
 if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
     echo "🟢 Container '$container_name' exists."
-    echo "⏹️ Stopping container if running..."
     docker stop "$container_name"
-    echo "▶️ Starting container..."
     docker start "$container_name"
-    echo "🔗 Attaching to container..."
     docker attach "$container_name"
 else
     echo "🔧 Creating and running new container: '$container_name'"
-    echo "🐳 Running docker with mounted volumes..."
     docker run -it \
+        --network host \
         -e GH_NAME="claude" \
         -e GH_EMAIL="claude@example.com" \
         -v $HOME/.ssh/claude-code:/home/claude/.ssh \

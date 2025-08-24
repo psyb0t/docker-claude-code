@@ -13,7 +13,7 @@ RUN apt-get update && \
     jq tree fd-find ripgrep bat exa silversearcher-ag \
     shellcheck shfmt clang-format valgrind gdb strace ltrace \
     sqlite3 postgresql-client mysql-client redis-tools \
-    httpie gh terraform kubectl helm \
+    httpie gh \
     && rm -rf /var/lib/apt/lists/*
 
 # install go 1.24.5
@@ -33,6 +33,17 @@ RUN go install golang.org/x/tools/gopls@latest && \
     go install github.com/josharian/impl@latest && \
     go install github.com/cweill/gotests/gotests@latest && \
     go install mvdan.cc/gofumpt@latest
+
+# install terraform, kubectl, helm manually
+RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list && \
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list && \
+    curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor -o /etc/apt/keyrings/helm.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | tee /etc/apt/sources.list.d/helm-stable-debian.list && \
+    apt-get update && \
+    apt-get install -y terraform kubectl helm && \
+    rm -rf /var/lib/apt/lists/*
 
 # install latest node.js
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \

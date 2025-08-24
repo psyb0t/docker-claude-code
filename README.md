@@ -80,6 +80,7 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
 else
     echo "🔧 Creating and running new container: '$container_name'"
     docker run -it \
+        --network host \
         -e GH_NAME="claude" \
         -e GH_EMAIL="claude@example.com" \
         -v $HOME/.ssh/claude-code:/home/claude/.ssh \
