@@ -11,11 +11,15 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 ## 🎞️ What's Inside?
 
 - Ubuntu 22.04 (stable and unfeeling)
-- Go 1.24 (gopher approved)
-- Latest Node.js (blessed by the Node gods)
-- Python 3 with pip, flake8, black, isort, autoflake, pyright, mypy, vulture
+- Go 1.24.5 with full toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
+- Latest Node.js with comprehensive dev tools (eslint, prettier, typescript, yarn, pnpm, framework CLIs)
+- Python 3 with linters, formatters, testing (flake8, black, isort, pytest, poetry, pipenv)
 - Docker CE with Docker Compose (full containerization chaos)
-- `git` + `curl` + Claude CLI
+- DevOps tools (terraform, kubectl, helm, gh CLI)
+- System utilities (jq, tree, ripgrep, bat, exa, fd-find, silversearcher-ag)
+- Development tools (shellcheck, clang-format, valgrind, gdb, strace, ltrace)
+- Database clients (sqlite3, postgresql-client, mysql-client, redis-tools)
+- `git` + `curl` + Claude CLI + httpie
 - Auto-Git config based on env vars
 - A dark little bash startup spell
 
