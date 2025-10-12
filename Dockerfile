@@ -35,16 +35,17 @@ RUN CGO_ENABLED=0 go install golang.org/x/tools/gopls@latest && \
     CGO_ENABLED=0 go install github.com/cweill/gotests/gotests@latest && \
     CGO_ENABLED=0 go install mvdan.cc/gofumpt@latest
 
-# install terraform, kubectl, helm manually
+# install terraform, kubectl
 RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list && \
     curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list && \
-    curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor -o /etc/apt/keyrings/helm.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | tee /etc/apt/sources.list.d/helm-stable-debian.list && \
     apt-get update && \
-    apt-get install -y terraform kubectl helm && \
+    apt-get install -y terraform kubectl && \
     rm -rf /var/lib/apt/lists/*
+
+# install helm using the official install script (more reliable than apt)
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # install latest node.js
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
