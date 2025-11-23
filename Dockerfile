@@ -79,7 +79,7 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     rm -rf /var/lib/apt/lists/*
 
 # install claude cli + additional npm tools
-RUN npm install -g @anthropic-ai/claude-code@latest \
+RUN npm install -g @anthropic-ai/claude-code@2.0.50 \
     eslint \
     prettier \
     typescript \
