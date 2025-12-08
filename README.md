@@ -89,15 +89,17 @@ container_name="claude-${sanitized_pwd}"
 
 # Check if the container is running
 if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🟢 Container '$container_name' is running. Executing claude..."
-    docker exec -it "$container_name" claude --dangerously-skip-permissions "$@"
+    echo "🟢 Container '$container_name' is running. Attaching..."
+    docker attach "$container_name"
     exit 0
 fi
 
 # Check if container exists but stopped
 if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🔄 Container '$container_name' exists but stopped. Removing and recreating..."
-    docker rm "$container_name" > /dev/null
+    echo "🔄 Container '$container_name' exists. Starting and attaching..."
+    docker start "$container_name" > /dev/null
+    docker attach "$container_name"
+    exit 0
 fi
 
 echo "🔧 Creating and running new container: '$container_name'"
@@ -110,7 +112,7 @@ docker run -it \
     -v "$(pwd)":/workspace \
     -v /var/run/docker.sock:/var/run/docker.sock \
     --name "$container_name" \
-    psyb0t/claude-code:latest "$@"
+    psyb0t/claude-code:latest
 ```
 
 Make it executable:
