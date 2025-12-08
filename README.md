@@ -21,7 +21,11 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Database clients (sqlite3, postgresql-client, mysql-client, redis-tools)
 - `git` + `curl` + Claude CLI + httpie
 - Auto-Git config based on env vars
-- A dark little bash startup spell
+- Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions`
+
+## 📋 Requirements
+
+- Docker installed and running
 
 ## ⚙️ Quick Start
 
@@ -46,23 +50,27 @@ mkdir -p ~/.claude
 If you don't have an SSH key pair yet, conjure one with:
 
 ```bash
-ssh-keygen -t ed25519 -C "claude@claude.ai"
+mkdir -p "$HOME/.ssh/claude-code"
+ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
 ```
 
-Save it somewhere like:
-
-```
-$HOME/.ssh/claude-code
-```
-
-Then add the public key (`id_ed25519.pub`) to your GitHub account or wherever you push code.
+Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub account or wherever you push code.
 
 ## 🔐 ENV Vars
 
 | Variable   | What it does                      |
 | ---------- | --------------------------------- |
-| `GH_NAME`  | Git commit name inside the image  |
-| `GH_EMAIL` | Git commit email inside the image |
+| `CLAUDE_GITHUB_NAME`  | Git commit name inside the image (optional) |
+| `CLAUDE_GITHUB_EMAIL` | Git commit email inside the image (optional) |
+
+To set these, export them on your host machine (e.g. in your `~/.bashrc` or `~/.zshrc`):
+
+```bash
+export CLAUDE_GITHUB_NAME="Your Name"
+export CLAUDE_GITHUB_EMAIL="your@email.com"
+```
+
+If not set, git inside the container won't have a default identity configured.
 
 ### Create a Wrapper Script
 
@@ -71,35 +79,44 @@ Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
 ```bash
 #!/usr/bin/env bash
 
+# Git identity - use env var if set, otherwise empty
+CLAUDE_GITHUB_NAME="${CLAUDE_GITHUB_NAME:-}"
+CLAUDE_GITHUB_EMAIL="${CLAUDE_GITHUB_EMAIL:-}"
+
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
 container_name="claude-${sanitized_pwd}"
 
-# Check if the container exists
-if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🟢 Container '$container_name' exists."
-    docker stop "$container_name"
-    docker start "$container_name"
-    docker attach "$container_name"
-else
-    echo "🔧 Creating and running new container: '$container_name'"
-    docker run -it \
-        --network host \
-        -e GH_NAME="claude" \
-        -e GH_EMAIL="claude@example.com" \
-        -v $HOME/.ssh/claude-code:/home/claude/.ssh \
-        -v $HOME/.claude:/home/claude/.claude \
-        -v "$(pwd)":/workspace \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        --name "$container_name" \
-        psyb0t/claude-code:latest "$@"
+# Check if the container is running
+if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
+    echo "🟢 Container '$container_name' is running. Executing claude..."
+    docker exec -it "$container_name" claude --dangerously-skip-permissions "$@"
+    exit 0
 fi
+
+# Check if container exists but stopped
+if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+    echo "🔄 Container '$container_name' exists but stopped. Removing and recreating..."
+    docker rm "$container_name" > /dev/null
+fi
+
+echo "🔧 Creating and running new container: '$container_name'"
+docker run -it \
+    --network host \
+    -e CLAUDE_GITHUB_NAME="$CLAUDE_GITHUB_NAME" \
+    -e CLAUDE_GITHUB_EMAIL="$CLAUDE_GITHUB_EMAIL" \
+    -v $HOME/.ssh/claude-code:/home/claude/.ssh \
+    -v $HOME/.claude:/home/claude/.claude \
+    -v "$(pwd)":/workspace \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    --name "$container_name" \
+    psyb0t/claude-code:latest "$@"
 ```
 
 Make it executable:
 
 ```bash
-chmod +x /usr/local/bin/claude
+sudo chmod +x /usr/local/bin/claude
 ```
 
 Now you can summon Claude like so:

@@ -79,7 +79,7 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     rm -rf /var/lib/apt/lists/*
 
 # install claude cli + additional npm tools
-RUN npm install -g @anthropic-ai/claude-code@2.0.50 \
+RUN npm install -g @anthropic-ai/claude-code@2.0.61 \
     eslint \
     prettier \
     typescript \
@@ -122,8 +122,13 @@ COPY <<EOF /home/claude/start_claude.sh
 mkdir -p "\$HOME/.claude"
 export CLAUDE_CONFIG_DIR="\$HOME/.claude"
 
-git config --global user.name "\$GH_NAME"
-git config --global user.email "\$GH_EMAIL"
+if [ -n "\$CLAUDE_GITHUB_NAME" ]; then
+    git config --global user.name "\$CLAUDE_GITHUB_NAME"
+fi
+
+if [ -n "\$CLAUDE_GITHUB_EMAIL" ]; then
+    git config --global user.email "\$CLAUDE_GITHUB_EMAIL"
+fi
 
 sudo claude update
 exec claude --dangerously-skip-permissions "\$@"
