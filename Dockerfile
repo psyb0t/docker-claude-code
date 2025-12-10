@@ -52,8 +52,25 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# install python linters and formatters + more dev tools
-RUN pip3 install --no-cache-dir \
+# install pyenv dependencies
+RUN apt-get update && apt-get install -y \
+    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# install pyenv and python 3.12
+ENV PYENV_ROOT="/usr/local/pyenv"
+ENV PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"
+RUN curl https://pyenv.run | bash && \
+    eval "$(pyenv init -)" && \
+    pyenv install 3.12 && \
+    pyenv global 3.12 && \
+    echo 'export PYENV_ROOT="/usr/local/pyenv"' >> /etc/bash.bashrc && \
+    echo 'export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"' >> /etc/bash.bashrc && \
+    echo 'eval "$(pyenv init -)"' >> /etc/bash.bashrc
+
+# install python linters and formatters + more dev tools (using pyenv python)
+RUN pip install --no-cache-dir \
     flake8 \
     black \
     isort \
@@ -79,7 +96,7 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     rm -rf /var/lib/apt/lists/*
 
 # install claude cli + additional npm tools
-RUN npm install -g @anthropic-ai/claude-code@2.0.61 \
+RUN npm install -g @anthropic-ai/claude-code@2.0.62 \
     eslint \
     prettier \
     typescript \
@@ -115,25 +132,8 @@ RUN chmod 440 /etc/sudoers.d/claude-nopass
 # workspace and warm cache
 WORKDIR /workspace
 
-# start script – your format, your style, no bloated bs
-COPY <<EOF /home/claude/start_claude.sh
-#!/bin/bash
-
-mkdir -p "\$HOME/.claude"
-export CLAUDE_CONFIG_DIR="\$HOME/.claude"
-
-if [ -n "\$CLAUDE_GITHUB_NAME" ]; then
-    git config --global user.name "\$CLAUDE_GITHUB_NAME"
-fi
-
-if [ -n "\$CLAUDE_GITHUB_EMAIL" ]; then
-    git config --global user.email "\$CLAUDE_GITHUB_EMAIL"
-fi
-
-sudo claude update
-exec claude --dangerously-skip-permissions "\$@"
-EOF
-
+# copy start script
+COPY start_claude.sh /home/claude/start_claude.sh
 RUN chmod +x /home/claude/start_claude.sh && \
     chown -R 1000:1000 /home/claude
 

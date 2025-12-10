@@ -13,7 +13,7 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Ubuntu 22.04 (stable and unfeeling)
 - Go 1.24.5 with full toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
 - Latest Node.js with comprehensive dev tools (eslint, prettier, typescript, yarn, pnpm, framework CLIs)
-- Python 3 with linters, formatters, testing (flake8, black, isort, pytest, poetry, pipenv)
+- Python 3.12 via pyenv with linters, formatters, testing (flake8, black, isort, pyright, mypy, vulture, pytest, poetry, pipenv)
 - Docker CE with Docker Compose (full containerization chaos)
 - DevOps tools (terraform, kubectl, helm, gh CLI)
 - System utilities (jq, tree, ripgrep, bat, exa, fd-find, silversearcher-ag)
@@ -21,6 +21,7 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Database clients (sqlite3, postgresql-client, mysql-client, redis-tools)
 - `git` + `curl` + Claude CLI + httpie
 - Auto-Git config based on env vars
+- Auto-generated `CLAUDE.md` in workspace (lists all available tools for Claude's awareness)
 - Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions`
 
 ## 📋 Requirements
