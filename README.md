@@ -1,7 +1,7 @@
 # 🧠 docker-claude-code
 
 **claude** but dockerized, goth-approved, and dangerously executable.
-This container gives you the [Claude Code CLI](https://www.npmjs.com/package/@anthropic-ai/claude-code) in a fully isolated ritual circle – no cursed system installs required.
+This container gives you the [Claude Code](https://claude.com/product/claude-code) in a fully isolated ritual circle – no cursed system installs required.
 
 ## 💀 Why?
 
@@ -12,14 +12,19 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 
 - Ubuntu 22.04 (stable and unfeeling)
 - Go 1.25.5 with full toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
-- Latest Node.js with comprehensive dev tools (eslint, prettier, typescript, yarn, pnpm, framework CLIs)
-- Python 3.12.11 via pyenv with linters, formatters, testing (flake8, black, isort, pyright, mypy, vulture, pytest, poetry, pipenv)
+- Latest Node.js with comprehensive dev tools (eslint, prettier, typescript, ts-node, yarn, pnpm, nodemon, pm2, framework CLIs, newman, http-server, serve, lighthouse, storybook)
+- Python 3.12.11 via pyenv with linters, formatters, testing (flake8, black, isort, autoflake, pyright, mypy, vulture, pytest, poetry, pipenv)
+- Python libraries pre-installed (requests, beautifulsoup4, lxml, pyyaml, toml)
 - Docker CE with Docker Compose (full containerization chaos)
 - DevOps tools (terraform, kubectl, helm, gh CLI)
-- System utilities (jq, tree, ripgrep, bat, exa, fd-find, silversearcher-ag)
-- Development tools (shellcheck, clang-format, valgrind, gdb, strace, ltrace)
+- System utilities (jq, tree, ripgrep, bat, exa, fd-find, silversearcher-ag, htop, tmux)
+- Shell tools (shellcheck, shfmt)
+- C/C++ tools (gcc, g++, make, cmake, clang-format, valgrind, gdb, strace, ltrace)
 - Database clients (sqlite3, postgresql-client, mysql-client, redis-tools)
-- `git` + `curl` + Claude CLI + httpie
+- Editors (vim, nano)
+- Archive tools (zip, unzip, tar)
+- Networking tools (net-tools, iputils-ping, dnsutils)
+- `git` + `curl` + `wget` + `httpie` + Claude Code
 - Auto-Git config based on env vars
 - Auto-generated `CLAUDE.md` in workspace (lists all available tools for Claude's awareness)
 - Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions`
