@@ -139,7 +139,8 @@ RUN chmod 440 /etc/sudoers.d/claude-nopass
 
 # claude CLI native install (can self-update)
 USER claude
-RUN curl -fsSL https://claude.ai/install.sh | bash && \
+ARG CLAUDE_VERSION=2.1.1
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION && \
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile && \
     ~/.local/bin/claude install --yes 2>/dev/null || true
 ENV PATH="/home/claude/.local/bin:$PATH"
