@@ -115,8 +115,20 @@ You are running in a Docker container with full sudo access. Here's what you hav
 - Docker socket may be mounted for docker-in-docker
 - pyenv at /usr/local/pyenv
 - Go tools at /usr/local/bin
-- claude CLI at ~/.npm-global (can self-update)
+- claude CLI at ~/.claude (native install, can self-update)
 CLAUDEMD
+fi
+
+# ensure .claude.json has required native install properties
+# this helps users who mount their existing .claude directory
+CLAUDE_CONFIG_DIR="/home/claude/.claude"
+CLAUDE_JSON="$CLAUDE_CONFIG_DIR/.claude.json"
+
+if [ -f "$CLAUDE_JSON" ]; then
+	# user has existing config, ensure native install props are set
+	UPDATED=$(jq '.installMethod = "native" | .autoUpdates = false | .autoUpdatesProtectedForNative = true' "$CLAUDE_JSON")
+	echo "$UPDATED" > "$CLAUDE_JSON"
+	chown claude:claude "$CLAUDE_JSON"
 fi
 
 # build the command to run as claude

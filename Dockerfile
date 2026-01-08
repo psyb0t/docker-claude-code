@@ -137,16 +137,19 @@ claude ALL=(ALL) NOPASSWD:ALL
 EOF
 RUN chmod 440 /etc/sudoers.d/claude-nopass
 
-# claude CLI under user home (so it can self-update)
+# claude CLI native install (can self-update)
 USER claude
-ENV NPM_CONFIG_PREFIX="/home/claude/.npm-global"
-ENV PATH="/home/claude/.npm-global/bin:$PATH"
-RUN npm install -g @anthropic-ai/claude-code@2.1.1 && \
-    echo 'export NPM_CONFIG_PREFIX="$HOME/.npm-global"' >> ~/.profile && \
-    echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.profile
+RUN curl -fsSL https://claude.ai/install.sh | bash && \
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile && \
+    ~/.local/bin/claude install --yes 2>/dev/null || true
+ENV PATH="/home/claude/.local/bin:$PATH"
 
 # back to root for entrypoint
 USER root
+
+# copy default claude config to /claude for entrypoint to use as template
+RUN mkdir -p /claude && \
+    cp /home/claude/.claude.json /claude/.claude.json
 
 # workspace
 WORKDIR /workspace
