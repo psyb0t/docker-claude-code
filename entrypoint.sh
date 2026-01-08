@@ -113,9 +113,9 @@ You are running in a Docker container with full sudo access. Here's what you hav
 ## Notes
 - You have passwordless sudo access
 - Docker socket may be mounted for docker-in-docker
-- pyenv installed at ~/.pyenv
-- Go tools installed at ~/go
-- npm global packages at ~/.npm-global
+- pyenv at /usr/local/pyenv
+- Go tools at /usr/local/bin
+- claude CLI at ~/.npm-global (can self-update)
 CLAUDEMD
 fi
 

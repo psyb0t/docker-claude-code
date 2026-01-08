@@ -55,14 +55,21 @@ RUN apt-get update && apt-get install -y \
     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# go 1.25.5 (system-wide, just the runtime)
+# go 1.25.5
 ARG TARGETARCH
 RUN curl -fsSL https://go.dev/dl/go1.25.5.linux-${TARGETARCH}.tar.gz | tar -xzC /usr/local && \
     echo 'export PATH="$PATH:/usr/local/go/bin"' > /etc/profile.d/go.sh
 ENV PATH=$PATH:/usr/local/go/bin
 
-# golangci-lint (system-wide binary)
+# go tools
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin latest
+RUN CGO_ENABLED=0 go install golang.org/x/tools/gopls@latest && mv /root/go/bin/gopls /usr/local/bin/
+RUN CGO_ENABLED=0 go install github.com/go-delve/delve/cmd/dlv@latest && mv /root/go/bin/dlv /usr/local/bin/
+RUN CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && mv /root/go/bin/staticcheck /usr/local/bin/
+RUN CGO_ENABLED=0 go install github.com/fatih/gomodifytags@latest && mv /root/go/bin/gomodifytags /usr/local/bin/
+RUN CGO_ENABLED=0 go install github.com/josharian/impl@latest && mv /root/go/bin/impl /usr/local/bin/
+RUN CGO_ENABLED=0 go install github.com/cweill/gotests/gotests@latest && mv /root/go/bin/gotests /usr/local/bin/
+RUN CGO_ENABLED=0 go install mvdan.cc/gofumpt@latest && mv /root/go/bin/gofumpt /usr/local/bin/
 
 # terraform
 RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg && \
@@ -81,12 +88,40 @@ RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
 
+# pyenv + python 3.12.11 (system-wide)
+ENV PYENV_ROOT="/usr/local/pyenv"
+ENV PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"
+RUN curl https://pyenv.run | bash && \
+    eval "$(pyenv init -)" && \
+    pyenv install 3.12.11 && \
+    pyenv global 3.12.11 && \
+    echo 'export PYENV_ROOT="/usr/local/pyenv"' > /etc/profile.d/pyenv.sh && \
+    echo 'export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"' >> /etc/profile.d/pyenv.sh
+
+# python linters/formatters
+RUN pip install --no-cache-dir flake8 black isort autoflake pyright mypy vulture
+
+# python testing
+RUN pip install --no-cache-dir pytest pytest-cov
+
+# python libs
+RUN pip install --no-cache-dir requests beautifulsoup4 lxml pyyaml toml
+
+# python package managers
+RUN pip install --no-cache-dir pipenv poetry
+
 # docker
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
     apt-get update && \
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
+
+# node.js tools (global, these don't need auto-update)
+RUN npm install -g eslint prettier typescript ts-node @typescript-eslint/parser @typescript-eslint/eslint-plugin
+RUN npm install -g nodemon pm2 yarn pnpm
+RUN npm install -g create-react-app @vue/cli @angular/cli express-generator
+RUN npm install -g newman http-server serve lighthouse @storybook/cli
 
 # create 'claude' user with sudo and docker access
 RUN useradd -u 1000 -ms /bin/bash claude && \
@@ -102,61 +137,15 @@ claude ALL=(ALL) NOPASSWD:ALL
 EOF
 RUN chmod 440 /etc/sudoers.d/claude-nopass
 
-# switch to claude for user-space installs
+# claude CLI under user home (so it can self-update)
 USER claude
-WORKDIR /home/claude
-
-# pyenv + python 3.12.11 (under claude's home)
-ENV PYENV_ROOT="/home/claude/.pyenv"
-ENV PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"
-RUN curl https://pyenv.run | bash && \
-    eval "$(pyenv init -)" && \
-    pyenv install 3.12.11 && \
-    pyenv global 3.12.11
-
-# python linters/formatters
-RUN pip install --no-cache-dir flake8 black isort autoflake pyright mypy vulture
-
-# python testing
-RUN pip install --no-cache-dir pytest pytest-cov
-
-# python libs
-RUN pip install --no-cache-dir requests beautifulsoup4 lxml pyyaml toml
-
-# python package managers
-RUN pip install --no-cache-dir pipenv poetry
-
-# go tools (under claude's GOPATH)
-ENV GOPATH="/home/claude/go"
-ENV PATH="$GOPATH/bin:$PATH"
-RUN CGO_ENABLED=0 go install golang.org/x/tools/gopls@latest
-RUN CGO_ENABLED=0 go install github.com/go-delve/delve/cmd/dlv@latest
-RUN CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest
-RUN CGO_ENABLED=0 go install github.com/fatih/gomodifytags@latest
-RUN CGO_ENABLED=0 go install github.com/josharian/impl@latest
-RUN CGO_ENABLED=0 go install github.com/cweill/gotests/gotests@latest
-RUN CGO_ENABLED=0 go install mvdan.cc/gofumpt@latest
-
-# node.js tools (npm global under claude's home)
 ENV NPM_CONFIG_PREFIX="/home/claude/.npm-global"
-ENV PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
-RUN npm install -g @anthropic-ai/claude-code@2.1.1
-RUN npm install -g eslint prettier typescript ts-node @typescript-eslint/parser @typescript-eslint/eslint-plugin
-RUN npm install -g nodemon pm2 yarn pnpm
-RUN npm install -g create-react-app @vue/cli @angular/cli express-generator
-RUN npm install -g newman http-server serve lighthouse @storybook/cli
-
-# profile setup for login shells
-RUN echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.profile && \
-    echo 'export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"' >> ~/.profile && \
-    echo 'eval "$(pyenv init -)"' >> ~/.profile && \
-    echo 'export GOPATH="$HOME/go"' >> ~/.profile && \
-    echo 'export PATH="$GOPATH/bin:$PATH"' >> ~/.profile && \
+ENV PATH="/home/claude/.npm-global/bin:$PATH"
+RUN npm install -g @anthropic-ai/claude-code@2.1.1 && \
     echo 'export NPM_CONFIG_PREFIX="$HOME/.npm-global"' >> ~/.profile && \
-    echo 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"' >> ~/.profile && \
-    echo 'export PATH="$PATH:/usr/local/go/bin"' >> ~/.profile
+    echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.profile
 
-# back to root for entrypoint (needs to fix perms)
+# back to root for entrypoint
 USER root
 
 # workspace
