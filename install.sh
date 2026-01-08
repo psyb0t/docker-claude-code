@@ -3,9 +3,9 @@
 echo "🚀 Starting Claude Code setup..."
 
 # Check for Docker
-if ! command -v docker &> /dev/null; then
-    echo "❌ Docker is not installed. Please install Docker first."
-    exit 1
+if ! command -v docker &>/dev/null; then
+	echo "❌ Docker is not installed. Please install Docker first."
+	exit 1
 fi
 
 echo "📁 Creating ~/.claude directory..."
@@ -18,12 +18,12 @@ echo "🗝️ Generating SSH key for Claude..."
 ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
 
 echo "📝 Creating claude command script..."
-sudo tee /usr/local/bin/claude << 'EOF' > /dev/null
+sudo tee /usr/local/bin/claude <<'EOF' >/dev/null
 #!/usr/bin/env bash
 
 # Git identity - use env var if set, otherwise empty
-CLAUDE_GITHUB_NAME="${CLAUDE_GITHUB_NAME:-}"
-CLAUDE_GITHUB_EMAIL="${CLAUDE_GITHUB_EMAIL:-}"
+CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
+CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
 
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
@@ -47,11 +47,12 @@ fi
 echo "🔧 Creating and running new container: '$container_name'"
 docker run -it \
     --network host \
-    -e CLAUDE_GITHUB_NAME="$CLAUDE_GITHUB_NAME" \
-    -e CLAUDE_GITHUB_EMAIL="$CLAUDE_GITHUB_EMAIL" \
-    -v $HOME/.ssh/claude-code:/home/claude/.ssh \
-    -v $HOME/.claude:/home/claude/.claude \
-    -v "$(pwd)":/workspace \
+    -e CLAUDE_GIT_NAME="$CLAUDE_GIT_NAME" \
+    -e CLAUDE_GIT_EMAIL="$CLAUDE_GIT_EMAIL" \
+    -e CLAUDE_WORKSPACE="$PWD" \
+    -v "$HOME/.ssh/claude-code:/home/claude/.ssh" \
+    -v "$HOME/.claude:/home/claude/.claude" \
+    -v "$PWD:$PWD" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     --name "$container_name" \
     psyb0t/claude-code:latest

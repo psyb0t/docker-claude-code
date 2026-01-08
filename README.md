@@ -11,9 +11,9 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 ## 🎞️ What's Inside?
 
 - Ubuntu 22.04 (stable and unfeeling)
-- Go 1.24.5 with full toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
+- Go 1.25.5 with full toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
 - Latest Node.js with comprehensive dev tools (eslint, prettier, typescript, yarn, pnpm, framework CLIs)
-- Python 3.12 via pyenv with linters, formatters, testing (flake8, black, isort, pyright, mypy, vulture, pytest, poetry, pipenv)
+- Python 3.12.11 via pyenv with linters, formatters, testing (flake8, black, isort, pyright, mypy, vulture, pytest, poetry, pipenv)
 - Docker CE with Docker Compose (full containerization chaos)
 - DevOps tools (terraform, kubectl, helm, gh CLI)
 - System utilities (jq, tree, ripgrep, bat, exa, fd-find, silversearcher-ag)
@@ -61,14 +61,15 @@ Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub
 
 | Variable   | What it does                      |
 | ---------- | --------------------------------- |
-| `CLAUDE_GITHUB_NAME`  | Git commit name inside the image (optional) |
-| `CLAUDE_GITHUB_EMAIL` | Git commit email inside the image (optional) |
+| `CLAUDE_GIT_NAME`  | Git commit name inside the image (optional) |
+| `CLAUDE_GIT_EMAIL` | Git commit email inside the image (optional) |
+| `CLAUDE_WORKSPACE` | Host path to mount and work in (set automatically by wrapper script) |
 
 To set these, export them on your host machine (e.g. in your `~/.bashrc` or `~/.zshrc`):
 
 ```bash
-export CLAUDE_GITHUB_NAME="Your Name"
-export CLAUDE_GITHUB_EMAIL="your@email.com"
+export CLAUDE_GIT_NAME="Your Name"
+export CLAUDE_GIT_EMAIL="your@email.com"
 ```
 
 If not set, git inside the container won't have a default identity configured.
@@ -81,8 +82,8 @@ Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
 #!/usr/bin/env bash
 
 # Git identity - use env var if set, otherwise empty
-CLAUDE_GITHUB_NAME="${CLAUDE_GITHUB_NAME:-}"
-CLAUDE_GITHUB_EMAIL="${CLAUDE_GITHUB_EMAIL:-}"
+CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
+CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
 
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
@@ -106,11 +107,12 @@ fi
 echo "🔧 Creating and running new container: '$container_name'"
 docker run -it \
     --network host \
-    -e CLAUDE_GITHUB_NAME="$CLAUDE_GITHUB_NAME" \
-    -e CLAUDE_GITHUB_EMAIL="$CLAUDE_GITHUB_EMAIL" \
-    -v $HOME/.ssh/claude-code:/home/claude/.ssh \
-    -v $HOME/.claude:/home/claude/.claude \
-    -v "$(pwd)":/workspace \
+    -e CLAUDE_GIT_NAME="$CLAUDE_GIT_NAME" \
+    -e CLAUDE_GIT_EMAIL="$CLAUDE_GIT_EMAIL" \
+    -e CLAUDE_WORKSPACE="$PWD" \
+    -v "$HOME/.ssh/claude-code:/home/claude/.ssh" \
+    -v "$HOME/.claude:/home/claude/.claude" \
+    -v "$PWD:$PWD" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     --name "$container_name" \
     psyb0t/claude-code:latest
@@ -132,7 +134,8 @@ claude
 
 - This tool uses `--dangerously-skip-permissions`. Because Claude likes to live fast and break sandboxes.
 - SSH keys are mounted to allow commit/push shenanigans. Keep 'em safe, goblin.
-- Volumes mount the current directory into the container workspace. That's your playground.
+- The host directory is mounted at its exact path inside the container (e.g. `/home/you/project` stays `/home/you/project`). This means docker volume mounts from inside Claude will use correct host paths.
+- The container user's UID/GID is automatically matched to the host directory owner, so file permissions just work.
 - Docker socket is mounted so Claude can spawn containers within containers. Docker-in-Docker madness enabled.
 
 ## 📜 License

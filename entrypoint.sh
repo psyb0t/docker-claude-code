@@ -1,26 +1,44 @@
 #!/bin/bash
 
-mkdir -p "$HOME/.claude"
-export CLAUDE_CONFIG_DIR="$HOME/.claude"
-
-if [ -n "$CLAUDE_GITHUB_NAME" ]; then
-    git config --global user.name "$CLAUDE_GITHUB_NAME"
+# fix docker socket permissions by matching the container's docker group GID to the socket's GID
+if [ -S /var/run/docker.sock ]; then
+	SOCKET_GID=$(stat -c '%g' /var/run/docker.sock)
+	CURRENT_DOCKER_GID=$(getent group docker | cut -d: -f3)
+	if [ "$SOCKET_GID" != "$CURRENT_DOCKER_GID" ]; then
+		groupmod -g "$SOCKET_GID" docker
+	fi
 fi
 
-if [ -n "$CLAUDE_GITHUB_EMAIL" ]; then
-    git config --global user.email "$CLAUDE_GITHUB_EMAIL"
+# match claude user's UID/GID to the host directory owner
+if [ -n "$CLAUDE_WORKSPACE" ] && [ -d "$CLAUDE_WORKSPACE" ]; then
+	HOST_UID=$(stat -c '%u' "$CLAUDE_WORKSPACE")
+	HOST_GID=$(stat -c '%g' "$CLAUDE_WORKSPACE")
+	CURRENT_UID=$(id -u claude)
+	CURRENT_GID=$(id -g claude)
+
+	if [ "$HOST_GID" != "$CURRENT_GID" ]; then
+		groupmod -g "$HOST_GID" claude
+	fi
+	if [ "$HOST_UID" != "$CURRENT_UID" ]; then
+		usermod -u "$HOST_UID" claude
+	fi
+
+	# fix home directory ownership after UID/GID change
+	chown -R claude:claude /home/claude
 fi
+
+WORKSPACE_DIR="${CLAUDE_WORKSPACE:-/workspace}"
 
 # create CLAUDE.md if it doesn't exist in workspace
-if [ ! -f "/workspace/CLAUDE.md" ]; then
-    cat > /workspace/CLAUDE.md << 'CLAUDEMD'
+if [ ! -f "$WORKSPACE_DIR/CLAUDE.md" ]; then
+	cat >"$WORKSPACE_DIR/CLAUDE.md" <<'CLAUDEMD'
 # Available Tools in This Container
 
 You are running in a Docker container with full sudo access. Here's what you have:
 
 ## Languages & Runtimes
-- **Go 1.24.5** - /usr/local/go/bin/go
-- **Python 3.12** (via pyenv) - default python
+- **Go 1.25.5** - /usr/local/go/bin/go
+- **Python 3.12.11** (via pyenv) - default python
 - **Node.js LTS** - with npm
 
 ## Go Tools
@@ -99,5 +117,21 @@ You are running in a Docker container with full sudo access. Here's what you hav
 CLAUDEMD
 fi
 
-sudo claude update
-exec claude --dangerously-skip-permissions
+# build the command to run as claude
+# we use su with a login shell to get the proper environment
+CMD="cd \"$WORKSPACE_DIR\""
+CMD="$CMD && export HOME=/home/claude"
+CMD="$CMD && export CLAUDE_CONFIG_DIR=/home/claude/.claude"
+CMD="$CMD && mkdir -p /home/claude/.claude"
+
+if [ -n "$CLAUDE_GIT_NAME" ]; then
+	CMD="$CMD && git config --global user.name \"$CLAUDE_GIT_NAME\""
+fi
+
+if [ -n "$CLAUDE_GIT_EMAIL" ]; then
+	CMD="$CMD && git config --global user.email \"$CLAUDE_GIT_EMAIL\""
+fi
+
+CMD="$CMD && claude update && exec claude --dangerously-skip-permissions"
+
+exec su claude -c "$CMD"
