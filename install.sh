@@ -50,8 +50,7 @@ fi
 # Check if container exists but stopped
 if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
     echo "🔄 Container '$container_name' exists. Starting and attaching..."
-    docker start "$container_name" > /dev/null
-    docker attach "$container_name"
+    docker start -ai "$container_name"
     exit 0
 fi
 
