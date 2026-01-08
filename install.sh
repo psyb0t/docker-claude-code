@@ -14,8 +14,19 @@ mkdir -p ~/.claude
 echo "🔐 Creating SSH directory for Claude Code..."
 mkdir -p "$HOME/.ssh/claude-code"
 
-echo "🗝️ Generating SSH key for Claude..."
-ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
+if [ -f "$HOME/.ssh/claude-code/id_ed25519" ]; then
+	echo "🔑 SSH key already exists at $HOME/.ssh/claude-code/id_ed25519"
+	read -rp "   Replace existing key? [y/N] " response
+	if [[ "$response" =~ ^[Yy]$ ]]; then
+		echo "🗝️ Generating new SSH key for Claude..."
+		ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
+	else
+		echo "   Keeping existing key."
+	fi
+else
+	echo "🗝️ Generating SSH key for Claude..."
+	ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
+fi
 
 echo "📝 Creating claude command script..."
 sudo tee /usr/local/bin/claude <<'EOF' >/dev/null
