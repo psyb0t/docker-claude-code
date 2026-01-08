@@ -9,22 +9,22 @@ if [ -S /var/run/docker.sock ]; then
 	fi
 fi
 
-# match claude user's UID/GID to the host directory owner
+# match claude user's UID/GID to the host directory owner (skip if root)
 if [ -n "$CLAUDE_WORKSPACE" ] && [ -d "$CLAUDE_WORKSPACE" ]; then
 	HOST_UID=$(stat -c '%u' "$CLAUDE_WORKSPACE")
 	HOST_GID=$(stat -c '%g' "$CLAUDE_WORKSPACE")
 	CURRENT_UID=$(id -u claude)
 	CURRENT_GID=$(id -g claude)
 
-	if [ "$HOST_GID" != "$CURRENT_GID" ]; then
-		groupmod -g "$HOST_GID" claude
+	if [ "$HOST_UID" != "0" ] && [ "$HOST_GID" != "0" ]; then
+		if [ "$HOST_GID" != "$CURRENT_GID" ]; then
+			groupmod -g "$HOST_GID" claude
+		fi
+		if [ "$HOST_UID" != "$CURRENT_UID" ]; then
+			usermod -u "$HOST_UID" claude
+		fi
+		chown -R claude:claude /home/claude
 	fi
-	if [ "$HOST_UID" != "$CURRENT_UID" ]; then
-		usermod -u "$HOST_UID" claude
-	fi
-
-	# fix home directory ownership after UID/GID change
-	chown -R claude:claude /home/claude
 fi
 
 WORKSPACE_DIR="${CLAUDE_WORKSPACE:-/workspace}"
@@ -113,7 +113,9 @@ You are running in a Docker container with full sudo access. Here's what you hav
 ## Notes
 - You have passwordless sudo access
 - Docker socket may be mounted for docker-in-docker
-- pyenv is installed system-wide at /usr/local/pyenv
+- pyenv installed at ~/.pyenv
+- Go tools installed at ~/go
+- npm global packages at ~/.npm-global
 CLAUDEMD
 fi
 

@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     build-essential make cmake pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# python base
+# python base (system python for bootstrapping)
 RUN apt-get update && apt-get install -y \
     python3 python3-pip python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
@@ -49,22 +49,20 @@ RUN apt-get update && apt-get install -y \
     sqlite3 postgresql-client mysql-client redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
-# go 1.25.5
+# pyenv dependencies
+RUN apt-get update && apt-get install -y \
+    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# go 1.25.5 (system-wide, just the runtime)
 ARG TARGETARCH
 RUN curl -fsSL https://go.dev/dl/go1.25.5.linux-${TARGETARCH}.tar.gz | tar -xzC /usr/local && \
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/environment && \
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/bash.bashrc
+    echo 'export PATH="$PATH:/usr/local/go/bin"' > /etc/profile.d/go.sh
 ENV PATH=$PATH:/usr/local/go/bin
 
-# go tools
+# golangci-lint (system-wide binary)
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin latest
-RUN CGO_ENABLED=0 go install golang.org/x/tools/gopls@latest
-RUN CGO_ENABLED=0 go install github.com/go-delve/delve/cmd/dlv@latest
-RUN CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest
-RUN CGO_ENABLED=0 go install github.com/fatih/gomodifytags@latest
-RUN CGO_ENABLED=0 go install github.com/josharian/impl@latest
-RUN CGO_ENABLED=0 go install github.com/cweill/gotests/gotests@latest
-RUN CGO_ENABLED=0 go install mvdan.cc/gofumpt@latest
 
 # terraform
 RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg && \
@@ -83,22 +81,38 @@ RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
 
-# pyenv dependencies
-RUN apt-get update && apt-get install -y \
-    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
-    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
-    && rm -rf /var/lib/apt/lists/*
+# docker
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
+    rm -rf /var/lib/apt/lists/*
 
-# pyenv + python 3.12.11
-ENV PYENV_ROOT="/usr/local/pyenv"
+# create 'claude' user with sudo and docker access
+RUN useradd -u 1000 -ms /bin/bash claude && \
+    usermod -aG sudo claude && \
+    usermod -aG docker claude && \
+    mkdir -p /home/claude/.ssh && \
+    ssh-keyscan github.com gitlab.com bitbucket.org >> /home/claude/.ssh/known_hosts 2>/dev/null && \
+    chown -R claude:claude /home/claude
+
+# passwordless sudo
+COPY <<EOF /etc/sudoers.d/claude-nopass
+claude ALL=(ALL) NOPASSWD:ALL
+EOF
+RUN chmod 440 /etc/sudoers.d/claude-nopass
+
+# switch to claude for user-space installs
+USER claude
+WORKDIR /home/claude
+
+# pyenv + python 3.12.11 (under claude's home)
+ENV PYENV_ROOT="/home/claude/.pyenv"
 ENV PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"
 RUN curl https://pyenv.run | bash && \
     eval "$(pyenv init -)" && \
     pyenv install 3.12.11 && \
-    pyenv global 3.12.11 && \
-    echo 'export PYENV_ROOT="/usr/local/pyenv"' >> /etc/bash.bashrc && \
-    echo 'export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"' >> /etc/bash.bashrc && \
-    echo 'eval "$(pyenv init -)"' >> /etc/bash.bashrc
+    pyenv global 3.12.11
 
 # python linters/formatters
 RUN pip install --no-cache-dir flake8 black isort autoflake pyright mypy vulture
@@ -112,45 +126,44 @@ RUN pip install --no-cache-dir requests beautifulsoup4 lxml pyyaml toml
 # python package managers
 RUN pip install --no-cache-dir pipenv poetry
 
-# docker
-RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
-    rm -rf /var/lib/apt/lists/*
+# go tools (under claude's GOPATH)
+ENV GOPATH="/home/claude/go"
+ENV PATH="$GOPATH/bin:$PATH"
+RUN CGO_ENABLED=0 go install golang.org/x/tools/gopls@latest
+RUN CGO_ENABLED=0 go install github.com/go-delve/delve/cmd/dlv@latest
+RUN CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest
+RUN CGO_ENABLED=0 go install github.com/fatih/gomodifytags@latest
+RUN CGO_ENABLED=0 go install github.com/josharian/impl@latest
+RUN CGO_ENABLED=0 go install github.com/cweill/gotests/gotests@latest
+RUN CGO_ENABLED=0 go install mvdan.cc/gofumpt@latest
 
-# claude cli
+# node.js tools (npm global under claude's home)
+ENV NPM_CONFIG_PREFIX="/home/claude/.npm-global"
+ENV PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 RUN npm install -g @anthropic-ai/claude-code@2.1.1
-
-# node.js linters/formatters
 RUN npm install -g eslint prettier typescript ts-node @typescript-eslint/parser @typescript-eslint/eslint-plugin
-
-# node.js dev tools
 RUN npm install -g nodemon pm2 yarn pnpm
-
-# node.js framework clis
 RUN npm install -g create-react-app @vue/cli @angular/cli express-generator
-
-# node.js misc tools
 RUN npm install -g newman http-server serve lighthouse @storybook/cli
 
-# create 'claude' user with full sudo access and docker group
-RUN useradd -u 1000 -ms /bin/bash claude && \
-    usermod -aG sudo claude && \
-    usermod -aG docker claude
+# profile setup for login shells
+RUN echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.profile && \
+    echo 'export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"' >> ~/.profile && \
+    echo 'eval "$(pyenv init -)"' >> ~/.profile && \
+    echo 'export GOPATH="$HOME/go"' >> ~/.profile && \
+    echo 'export PATH="$GOPATH/bin:$PATH"' >> ~/.profile && \
+    echo 'export NPM_CONFIG_PREFIX="$HOME/.npm-global"' >> ~/.profile && \
+    echo 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"' >> ~/.profile && \
+    echo 'export PATH="$PATH:/usr/local/go/bin"' >> ~/.profile
 
-# grant passwordless sudo to claude
-COPY <<EOF /etc/sudoers.d/claude-nopass
-claude ALL=(ALL) NOPASSWD:ALL
-EOF
-RUN chmod 440 /etc/sudoers.d/claude-nopass
+# back to root for entrypoint (needs to fix perms)
+USER root
 
 # workspace
 WORKDIR /workspace
 
 # entrypoint
 COPY entrypoint.sh /home/claude/entrypoint.sh
-RUN chmod +x /home/claude/entrypoint.sh && \
-    chown -R 1000:1000 /home/claude
+RUN chmod +x /home/claude/entrypoint.sh
 
 ENTRYPOINT ["/home/claude/entrypoint.sh"]
