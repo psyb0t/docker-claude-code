@@ -134,4 +134,4 @@ fi
 
 CMD="$CMD && claude update && exec claude --dangerously-skip-permissions"
 
-exec su claude -c "$CMD"
+exec su - claude -c "$CMD"
