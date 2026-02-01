@@ -124,12 +124,17 @@ fi
 CLAUDE_CONFIG_DIR="/home/claude/.claude"
 CLAUDE_JSON="$CLAUDE_CONFIG_DIR/.claude.json"
 
+mkdir -p "$CLAUDE_CONFIG_DIR"
+
 if [ -f "$CLAUDE_JSON" ]; then
 	# user has existing config, ensure native install props are set
 	UPDATED=$(jq '.installMethod = "native" | .autoUpdates = false | .autoUpdatesProtectedForNative = true' "$CLAUDE_JSON")
 	echo "$UPDATED" > "$CLAUDE_JSON"
-	chown claude:claude "$CLAUDE_JSON"
+else
+	# no config exists, copy the template from the image
+	cp /claude/.claude.json "$CLAUDE_JSON"
 fi
+chown -R claude:claude "$CLAUDE_CONFIG_DIR"
 
 # build the command to run as claude
 # we use su with a login shell to get the proper environment
