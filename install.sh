@@ -28,6 +28,9 @@ else
 	ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
 fi
 
+echo "📦 Pulling latest Claude Code image..."
+docker pull psyb0t/claude-code:latest
+
 echo "📝 Creating claude command script..."
 sudo tee /usr/local/bin/claude <<'EOF' >/dev/null
 #!/usr/bin/env bash
@@ -42,8 +45,9 @@ container_name="claude-${sanitized_pwd}"
 
 # Check if the container is running
 if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🟢 Container '$container_name' is running. Attaching..."
-    docker attach "$container_name"
+    echo "🔄 Container '$container_name' is running. Stopping and restarting..."
+    docker stop "$container_name" >/dev/null
+    docker start -ai "$container_name"
     exit 0
 fi
 

@@ -151,6 +151,6 @@ if [ -n "$CLAUDE_GIT_EMAIL" ]; then
 	CMD="$CMD && git config --global user.email \"$CLAUDE_GIT_EMAIL\""
 fi
 
-CMD="$CMD && claude update && exec claude --dangerously-skip-permissions"
+CMD="$CMD && claude update && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
 
 exec su - claude -c "$CMD"
