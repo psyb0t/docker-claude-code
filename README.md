@@ -27,7 +27,7 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - `git` + `curl` + `wget` + `httpie` + Claude Code
 - Auto-Git config based on env vars
 - Auto-generated `CLAUDE.md` in workspace (lists all available tools for Claude's awareness)
-- Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions`
+- Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions --continue` (falls back to fresh session if no conversation to continue)
 
 ## 📋 Requirements
 
@@ -96,8 +96,9 @@ container_name="claude-${sanitized_pwd}"
 
 # Check if the container is running
 if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🟢 Container '$container_name' is running. Attaching..."
-    docker attach "$container_name"
+    echo "🔄 Container '$container_name' is running. Stopping and restarting..."
+    docker stop "$container_name" >/dev/null
+    docker start -ai "$container_name"
     exit 0
 fi
 
