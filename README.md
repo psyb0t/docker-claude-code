@@ -28,6 +28,9 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Auto-Git config based on env vars
 - Auto-generated `CLAUDE.md` in workspace (lists all available tools for Claude's awareness)
 - Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions --continue` (falls back to fresh session if no conversation to continue)
+- Workspace trust dialog is automatically pre-accepted (no annoying prompts)
+- Programmatic mode support — just pass a prompt and optional `--output-format` (`-p` is added automatically)
+- `--ephemeral` flag for throwaway containers that auto-remove after exit
 
 ## 📋 Requirements
 
@@ -69,6 +72,8 @@ Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub
 | `CLAUDE_GIT_NAME`  | Git commit name inside the image (optional) |
 | `CLAUDE_GIT_EMAIL` | Git commit email inside the image (optional) |
 | `CLAUDE_WORKSPACE` | Host path to mount and work in (set automatically by wrapper script) |
+| `ANTHROPIC_API_KEY` | API key for authentication (forwarded to container if set) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication (forwarded to container if set) |
 
 To set these, export them on your host machine (e.g. in your `~/.bashrc` or `~/.zshrc`):
 
@@ -79,60 +84,82 @@ export CLAUDE_GIT_EMAIL="your@email.com"
 
 If not set, git inside the container won't have a default identity configured.
 
-### Create a Wrapper Script
-
-Put this in your `/usr/local/bin/claude` (or wherever your chaos reigns):
+For auth, either log in interactively or set up a long-lived OAuth token:
 
 ```bash
-#!/usr/bin/env bash
+# generate an OAuth token (interactive, one-time setup)
+claude setup-token
 
-# Git identity - use env var if set, otherwise empty
-CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
-CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
+# then use it for programmatic runs
+CLAUDE_CODE_OAUTH_TOKEN=xxx claude "do stuff"
 
-# Convert PWD to a valid container name (slashes to underscores)
-sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
-container_name="claude-${sanitized_pwd}"
-
-# Check if the container is running
-if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🔄 Container '$container_name' is running. Stopping and restarting..."
-    docker stop "$container_name" >/dev/null
-    docker start -ai "$container_name"
-    exit 0
-fi
-
-# Check if container exists but stopped
-if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🔄 Container '$container_name' exists. Starting and attaching..."
-    docker start -ai "$container_name"
-    exit 0
-fi
-
-echo "🔧 Creating and running new container: '$container_name'"
-docker run -it \
-    --network host \
-    -e CLAUDE_GIT_NAME="$CLAUDE_GIT_NAME" \
-    -e CLAUDE_GIT_EMAIL="$CLAUDE_GIT_EMAIL" \
-    -e CLAUDE_WORKSPACE="$PWD" \
-    -v "$HOME/.ssh/claude-code:/home/claude/.ssh" \
-    -v "$HOME/.claude:/home/claude/.claude" \
-    -v "$PWD:$PWD" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    --name "$container_name" \
-    psyb0t/claude-code:latest
+# or use an API key
+ANTHROPIC_API_KEY=sk-ant-xxx claude "do stuff"
 ```
 
-Make it executable:
+## 🧙 Usage
 
-```bash
-sudo chmod +x /usr/local/bin/claude
-```
-
-Now you can summon Claude like so:
+### Interactive mode
 
 ```bash
 claude
+```
+
+Starts an interactive session. The container is named by directory path and persists between runs — stop/restart instead of attach, with `--continue` to resume the last conversation.
+
+### Programmatic mode
+
+Just pass a prompt — `-p` is added automatically:
+
+```bash
+# one-shot prompt with JSON output
+claude "explain this codebase" --output-format json
+
+# streaming output piped to jq
+claude "list all TODOs" --output-format stream-json | jq .
+
+# plain text output (default)
+claude "what does this repo do"
+```
+
+Uses the same container as interactive mode — custom installs persist and `--continue` is passed automatically so programmatic runs pick up your last interactive session.
+
+#### Output formats
+
+**`text`** (default) — plain text response.
+
+**`json`** — single JSON object with the result:
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "result": "the response text",
+  "num_turns": 1,
+  "duration_ms": 3100,
+  "duration_api_ms": 3069,
+  "total_cost_usd": 0.156,
+  "session_id": "...",
+  "usage": { "input_tokens": 3, "output_tokens": 4, "..." : "..." },
+  "modelUsage": { "..." : "..." }
+}
+```
+
+**`stream-json`** — newline-delimited JSON, one object per line:
+
+```json
+{"type":"system","subtype":"init","cwd":"/your/project","session_id":"...","tools":["Bash","Read","Write","..."],"model":"claude-opus-4-6","permissionMode":"bypassPermissions","claude_code_version":"2.1.62","...":"..."}
+{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"Hello!"}],"usage":{"input_tokens":3,"output_tokens":1,"cache_read_input_tokens":24960,"...":"..."}},"session_id":"..."}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1772204400,"rateLimitType":"five_hour","overageStatus":"allowed","isUsingOverage":false},"session_id":"..."}
+{"type":"result","subtype":"success","is_error":false,"result":"Hello!","num_turns":1,"duration_ms":2797,"duration_api_ms":2767,"total_cost_usd":0.012,"session_id":"...","usage":{"input_tokens":3,"output_tokens":5,"cache_read_input_tokens":24960,"...":"..."},"modelUsage":{"...":"..."}}
+```
+
+### Ephemeral mode
+
+Add `--ephemeral` for a throwaway container that auto-removes after exit with no session persistence:
+
+```bash
+claude --ephemeral "quick question" --output-format json
 ```
 
 ## 🦴 Gotchas
@@ -142,6 +169,7 @@ claude
 - The host directory is mounted at its exact path inside the container (e.g. `/home/you/project` stays `/home/you/project`). This means docker volume mounts from inside Claude will use correct host paths.
 - The container user's UID/GID is automatically matched to the host directory owner, so file permissions just work.
 - Docker socket is mounted so Claude can spawn containers within containers. Docker-in-Docker madness enabled.
+- Workspace trust dialog is pre-accepted automatically — no confirmation prompts on startup.
 
 ## 📜 License
 

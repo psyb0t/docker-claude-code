@@ -43,33 +43,129 @@ CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
 container_name="claude-${sanitized_pwd}"
 
-# Check if the container is running
+DOCKER_ARGS=(
+    --network host
+    -e CLAUDE_GIT_NAME="$CLAUDE_GIT_NAME"
+    -e CLAUDE_GIT_EMAIL="$CLAUDE_GIT_EMAIL"
+    -e CLAUDE_WORKSPACE="$PWD"
+    -e CLAUDE_CONTAINER_NAME="$container_name"
+    -v "$HOME/.ssh/claude-code:/home/claude/.ssh"
+    -v "$HOME/.claude:/home/claude/.claude"
+    -v "$PWD:$PWD"
+    -v /var/run/docker.sock:/var/run/docker.sock
+)
+
+# forward auth env vars to the container and save them for existing containers
+AUTH_FILE="$HOME/.claude/.${container_name}-auth"
+[ -n "$ANTHROPIC_API_KEY" ] && DOCKER_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && DOCKER_ARGS+=(-e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
+printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$AUTH_FILE"
+
+# setup-token — throwaway container, token is saved to mounted ~/.claude
+if [ "${1:-}" = "setup-token" ]; then
+    docker run -it --rm --name "${container_name}_setup_$$" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest setup-token
+    exit 0
+fi
+
+# Parse and validate args
+if [ $# -gt 0 ]; then
+    EPHEMERAL=0
+    NEEDS_VERBOSE=0
+    PASS_ARGS=(-p)
+    EXPECT_VALUE=""
+    for arg in "$@"; do
+        if [ "$arg" = "--ephemeral" ]; then
+            EPHEMERAL=1
+            continue
+        fi
+
+        if [ -n "$EXPECT_VALUE" ]; then
+            case "$EXPECT_VALUE" in
+                --output-format)
+                    case "$arg" in
+                        text|json) ;;
+                        stream-json) NEEDS_VERBOSE=1 ;;
+                        *) echo "❌ Invalid output format: $arg (allowed: text, json, stream-json)"; exit 1 ;;
+                    esac
+                    ;;
+            esac
+            PASS_ARGS+=("$EXPECT_VALUE" "$arg")
+            EXPECT_VALUE=""
+            continue
+        fi
+
+        case "$arg" in
+            -p|--print)
+                # already added, skip
+                ;;
+            --output-format)
+                EXPECT_VALUE="$arg"
+                ;;
+            --output-format=*)
+                fmt="${arg#--output-format=}"
+                case "$fmt" in
+                    text|json) ;;
+                    stream-json) NEEDS_VERBOSE=1 ;;
+                    *) echo "❌ Invalid output format: $fmt (allowed: text, json, stream-json)"; exit 1 ;;
+                esac
+                PASS_ARGS+=("$arg")
+                ;;
+            -*)
+                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --ephemeral)"
+                exit 1
+                ;;
+            *)
+                # positional arg = prompt
+                PASS_ARGS+=("$arg")
+                ;;
+        esac
+    done
+
+    if [ -n "$EXPECT_VALUE" ]; then
+        echo "❌ Missing value for $EXPECT_VALUE"
+        exit 1
+    fi
+
+    [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
+
+    if [ "$EPHEMERAL" = "1" ]; then
+        RUN_ARGS=(--rm --name "${container_name}_ephemeral_$$")
+        [ -t 1 ] && RUN_ARGS+=(-t)
+        docker run -i "${RUN_ARGS[@]}" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
+        exit 0
+    fi
+
+    # Programmatic mode — same container as interactive, pass args via file
+    printf '%q ' "${PASS_ARGS[@]}" > "$HOME/.claude/.${container_name}-args"
+    trap 'rm -f "$HOME/.claude/.${container_name}-args"' EXIT
+fi
+
+# Wait for container to not be running (another session might be using it)
 if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🔄 Container '$container_name' is running. Stopping and restarting..."
-    docker stop "$container_name" >/dev/null
-    docker start -ai "$container_name"
-    exit 0
+    echo "⏳ Container '$container_name' is busy. Waiting for it to finish..."
+    for i in 1 2 3; do
+        sleep $((5 * i))
+        if ! docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
+            echo "✅ Container is free."
+            break
+        fi
+        echo "   attempt $i/3..."
+    done
+    if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        echo "❌ Container is still busy after 3 attempts. Try again later."
+        rm -f "$HOME/.claude/.${container_name}-args"
+        exit 1
+    fi
 fi
 
-# Check if container exists but stopped
+# Start existing container or create new one
 if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🔄 Container '$container_name' exists. Starting and attaching..."
+    echo "🔄 Starting container '$container_name'..."
     docker start -ai "$container_name"
-    exit 0
+else
+    echo "🔧 Creating container '$container_name'..."
+    docker run -it --name "$container_name" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest
 fi
-
-echo "🔧 Creating and running new container: '$container_name'"
-docker run -it \
-    --network host \
-    -e CLAUDE_GIT_NAME="$CLAUDE_GIT_NAME" \
-    -e CLAUDE_GIT_EMAIL="$CLAUDE_GIT_EMAIL" \
-    -e CLAUDE_WORKSPACE="$PWD" \
-    -v "$HOME/.ssh/claude-code:/home/claude/.ssh" \
-    -v "$HOME/.claude:/home/claude/.claude" \
-    -v "$PWD:$PWD" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    --name "$container_name" \
-    psyb0t/claude-code:latest
 EOF
 
 echo "🔧 Making claude command executable..."

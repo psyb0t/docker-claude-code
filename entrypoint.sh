@@ -134,6 +134,10 @@ else
 	# no config exists, copy the template from the image
 	cp /claude/.claude.json "$CLAUDE_JSON"
 fi
+
+# pre-accept workspace trust dialog for the workspace dir
+UPDATED=$(jq --arg dir "$WORKSPACE_DIR" '.projects[$dir].hasTrustDialogAccepted = true' "$CLAUDE_JSON")
+echo "$UPDATED" > "$CLAUDE_JSON"
 chown -R claude:claude "$CLAUDE_CONFIG_DIR"
 
 # build the command to run as claude
@@ -151,6 +155,30 @@ if [ -n "$CLAUDE_GIT_EMAIL" ]; then
 	CMD="$CMD && git config --global user.email \"$CLAUDE_GIT_EMAIL\""
 fi
 
-CMD="$CMD && claude update && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
+# load auth env vars from file (for existing containers that can't get new env vars)
+AUTH_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-auth"
+if [ -f "$AUTH_FILE" ]; then
+	while IFS='=' read -r name value; do
+		[ -n "$value" ] && CMD="$CMD && export $name=\"$value\""
+	done < "$AUTH_FILE"
+fi
+
+ARGS_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-args"
+if [ "${1:-}" = "setup-token" ]; then
+	# setup-token — just run it directly
+	CMD="$CMD && exec claude setup-token"
+elif [ $# -gt 0 ]; then
+	# ephemeral — args passed directly via docker run
+	ESCAPED_ARGS=$(printf '%q ' "$@")
+	CMD="$CMD && exec claude --dangerously-skip-permissions --no-session-persistence $ESCAPED_ARGS"
+elif [ -f "$ARGS_FILE" ]; then
+	# programmatic — args passed via file from wrapper
+	ESCAPED_ARGS=$(cat "$ARGS_FILE")
+	rm -f "$ARGS_FILE"
+	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
+else
+	# interactive
+	CMD="$CMD && claude update && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
+fi
 
 exec su - claude -c "$CMD"
