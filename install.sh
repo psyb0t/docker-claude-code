@@ -152,9 +152,12 @@ if [ $# -gt 0 ]; then
     trap 'rm -f "$HOME/.claude/.${container_name}-args"' EXIT
 fi
 
-# only update for interactive mode when --no-update is not set
+# signal update via file (env vars don't work with docker start)
+UPDATE_FILE="$HOME/.claude/.${container_name}-update"
 if [ $# -eq 0 ] && [ "$NO_UPDATE" = "0" ]; then
-    DOCKER_ARGS+=(-e "CLAUDE_DO_UPDATE=1")
+    touch "$UPDATE_FILE"
+else
+    rm -f "$UPDATE_FILE"
 fi
 
 # Wait for container to not be running (another session might be using it)

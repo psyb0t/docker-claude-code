@@ -164,6 +164,7 @@ if [ -f "$AUTH_FILE" ]; then
 fi
 
 ARGS_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-args"
+UPDATE_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-update"
 if [ "${1:-}" = "setup-token" ]; then
 	# setup-token — just run it directly
 	CMD="$CMD && exec claude setup-token"
@@ -178,7 +179,10 @@ elif [ -f "$ARGS_FILE" ]; then
 	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
 else
 	# interactive
-	[ "$CLAUDE_DO_UPDATE" = "1" ] && CMD="$CMD && claude update"
+	if [ -f "$UPDATE_FILE" ]; then
+		rm -f "$UPDATE_FILE"
+		CMD="$CMD && claude update"
+	fi
 	CMD="$CMD && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
 fi
 
