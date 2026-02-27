@@ -178,7 +178,8 @@ elif [ -f "$ARGS_FILE" ]; then
 	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
 else
 	# interactive
-	CMD="$CMD && claude update && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
+	[ "$CLAUDE_DO_UPDATE" = "1" ] && CMD="$CMD && claude update"
+	CMD="$CMD && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
 fi
 
 exec su - claude -c "$CMD"

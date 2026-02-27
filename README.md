@@ -28,6 +28,7 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Auto-Git config based on env vars
 - Auto-generated `CLAUDE.md` in workspace (lists all available tools for Claude's awareness)
 - Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions --continue` (falls back to fresh session if no conversation to continue)
+- Auto-updates claude on interactive startup (skip with `--no-update`), background auto-updater disabled
 - Workspace trust dialog is automatically pre-accepted (no annoying prompts)
 - Programmatic mode support — just pass a prompt and optional `--output-format` (`-p` is added automatically)
 - `--ephemeral` flag for throwaway containers that auto-remove after exit
@@ -105,7 +106,13 @@ ANTHROPIC_API_KEY=sk-ant-xxx claude "do stuff"
 claude
 ```
 
-Starts an interactive session. The container is named by directory path and persists between runs — stop/restart instead of attach, with `--continue` to resume the last conversation.
+Starts an interactive session. The container is named by directory path and persists between runs — stop/restart instead of attach, with `--continue` to resume the last conversation. Claude auto-updates on each interactive start. To skip:
+
+```bash
+claude --no-update
+```
+
+Programmatic and ephemeral runs never auto-update.
 
 ### Programmatic mode
 
@@ -145,14 +152,39 @@ Uses the same container as interactive mode — custom installs persist and `--c
 }
 ```
 
-**`stream-json`** — newline-delimited JSON, one object per line:
+**`stream-json`** — newline-delimited JSON (NDJSON), one event per line. Each event has a `type` field. Here's what a multi-step run looks like (e.g. `claude "install cowsay, run it, fetch a URL" --output-format stream-json`):
 
+**`system`** — first event, session init with tools, model, version, permissions:
 ```json
-{"type":"system","subtype":"init","cwd":"/your/project","session_id":"...","tools":["Bash","Read","Write","..."],"model":"claude-opus-4-6","permissionMode":"bypassPermissions","claude_code_version":"2.1.62","...":"..."}
-{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"Hello!"}],"usage":{"input_tokens":3,"output_tokens":1,"cache_read_input_tokens":24960,"...":"..."}},"session_id":"..."}
-{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1772204400,"rateLimitType":"five_hour","overageStatus":"allowed","isUsingOverage":false},"session_id":"..."}
-{"type":"result","subtype":"success","is_error":false,"result":"Hello!","num_turns":1,"duration_ms":2797,"duration_api_ms":2767,"total_cost_usd":0.012,"session_id":"...","usage":{"input_tokens":3,"output_tokens":5,"cache_read_input_tokens":24960,"...":"..."},"modelUsage":{"...":"..."}}
+{"type":"system","subtype":"init","cwd":"/your/project","session_id":"...","tools":["Bash","Read","Write","Glob","Grep","..."],"model":"claude-opus-4-6","permissionMode":"bypassPermissions","claude_code_version":"2.1.62","agents":["general-purpose","Explore","Plan","..."],"skills":["keybindings-help","debug"],"plugins":[...],"fast_mode_state":"off"}
 ```
+
+**`assistant`** — Claude's responses. Content is an array of text and/or tool_use blocks:
+```json
+{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"I'll install cowsay first."}],"usage":{"input_tokens":3,"output_tokens":2,"cache_read_input_tokens":22077,"...":"..."}},"session_id":"..."}
+```
+
+When Claude calls a tool, content contains a `tool_use` block:
+```json
+{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","id":"toolu_abc123","name":"Bash","input":{"command":"sudo apt-get install -y cowsay","description":"Install cowsay"}}],"usage":{"input_tokens":1,"output_tokens":26,"...":"..."}},"session_id":"..."}
+```
+
+**`user`** — tool execution results (stdout, stderr, error status):
+```json
+{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_abc123","type":"tool_result","content":"Setting up cowsay (3.03+dfsg2-8) ...","is_error":false}]},"session_id":"...","tool_use_result":{"stdout":"Setting up cowsay (3.03+dfsg2-8) ...","stderr":"","interrupted":false}}
+```
+
+**`rate_limit_event`** — rate limit status check between turns:
+```json
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1772204400,"rateLimitType":"five_hour","overageStatus":"allowed","isUsingOverage":false},"session_id":"..."}
+```
+
+**`result`** — final event with summary, cost, usage breakdown per model:
+```json
+{"type":"result","subtype":"success","is_error":false,"num_turns":10,"duration_ms":60360,"duration_api_ms":46285,"total_cost_usd":0.203,"result":"Here's what I did:\n1. Installed cowsay...\n2. ...","session_id":"...","usage":{"input_tokens":12,"output_tokens":1669,"cache_read_input_tokens":255610,"cache_creation_input_tokens":5037},"modelUsage":{"claude-opus-4-6":{"inputTokens":12,"outputTokens":1669,"cacheReadInputTokens":255610,"costUSD":0.201},"claude-haiku-4-5-20251001":{"inputTokens":1656,"outputTokens":128,"costUSD":0.002}}}
+```
+
+A typical multi-step run produces: `system` → (`assistant` → `user`)× repeated per tool call → `rate_limit_event` between turns → final `assistant` text → `result`.
 
 ### Ephemeral mode
 

@@ -61,6 +61,18 @@ AUTH_FILE="$HOME/.claude/.${container_name}-auth"
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && DOCKER_ARGS+=(-e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
 printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$AUTH_FILE"
 
+# check for --no-update before anything else
+NO_UPDATE=0
+REMAINING_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--no-update" ]; then
+        NO_UPDATE=1
+        continue
+    fi
+    REMAINING_ARGS+=("$arg")
+done
+set -- "${REMAINING_ARGS[@]}"
+
 # setup-token — throwaway container, token is saved to mounted ~/.claude
 if [ "${1:-}" = "setup-token" ]; then
     docker run -it --rm --name "${container_name}_setup_$$" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest setup-token
@@ -111,7 +123,7 @@ if [ $# -gt 0 ]; then
                 PASS_ARGS+=("$arg")
                 ;;
             -*)
-                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --ephemeral)"
+                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --ephemeral, --no-update)"
                 exit 1
                 ;;
             *)
@@ -138,6 +150,11 @@ if [ $# -gt 0 ]; then
     # Programmatic mode — same container as interactive, pass args via file
     printf '%q ' "${PASS_ARGS[@]}" > "$HOME/.claude/.${container_name}-args"
     trap 'rm -f "$HOME/.claude/.${container_name}-args"' EXIT
+fi
+
+# only update for interactive mode when --no-update is not set
+if [ $# -eq 0 ] && [ "$NO_UPDATE" = "0" ]; then
+    DOCKER_ARGS+=(-e "CLAUDE_DO_UPDATE=1")
 fi
 
 # Wait for container to not be running (another session might be using it)
