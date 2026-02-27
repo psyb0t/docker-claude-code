@@ -122,6 +122,10 @@ Just pass a prompt — `-p` is added automatically:
 # one-shot prompt with JSON output
 claude "explain this codebase" --output-format json
 
+# use a specific model
+claude "explain this codebase" --model sonnet
+claude "explain this codebase" --model claude-sonnet-4-6
+
 # streaming output piped to jq
 claude "list all TODOs" --output-format stream-json | jq .
 
@@ -130,6 +134,40 @@ claude "what does this repo do"
 ```
 
 Uses the same container as interactive mode — custom installs persist and `--continue` is passed automatically so programmatic runs pick up your last interactive session.
+
+#### Model selection
+
+Use `--model` to pick which Claude model to use:
+
+| Alias | Model | Best for |
+|-------|-------|----------|
+| `opus` | Claude Opus 4.6 | Complex reasoning, architecture, hard debugging |
+| `sonnet` | Claude Sonnet 4.6 | Daily coding, balanced speed/intelligence |
+| `haiku` | Claude Haiku 4.5 | Quick lookups, simple tasks, high volume |
+| `opusplan` | Opus (planning) + Sonnet (execution) | Best of both worlds |
+| `sonnet[1m]` | Sonnet with 1M context | Long sessions, huge codebases |
+
+You can also use full model names to pin specific versions:
+
+| Full model name | Notes |
+|----------------|-------|
+| `claude-opus-4-6` | Current Opus |
+| `claude-sonnet-4-6` | Current Sonnet |
+| `claude-haiku-4-5-20251001` | Current Haiku |
+| `claude-opus-4-5-20251101` | Legacy |
+| `claude-sonnet-4-5-20250929` | Legacy |
+| `claude-opus-4-1-20250805` | Legacy |
+| `claude-opus-4-20250514` | Legacy (alias: `claude-opus-4-0`) |
+| `claude-sonnet-4-20250514` | Legacy (alias: `claude-sonnet-4-0`) |
+| `claude-3-haiku-20240307` | Deprecated, retiring April 2026 |
+
+```bash
+claude "do stuff" --model opus                        # latest opus
+claude "do stuff" --model haiku                       # fast and cheap
+claude "do stuff" --model claude-sonnet-4-5-20250929  # pin to specific version
+```
+
+If not specified, the model defaults based on your account type (Max/Team Premium → Opus, Pro/Team Standard → Sonnet).
 
 #### Output formats
 

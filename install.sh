@@ -101,6 +101,7 @@ if [ $# -gt 0 ]; then
                         *) echo "❌ Invalid output format: $arg (allowed: text, json, stream-json)"; exit 1 ;;
                     esac
                     ;;
+                --model) ;;
             esac
             PASS_ARGS+=("$EXPECT_VALUE" "$arg")
             EXPECT_VALUE=""
@@ -111,7 +112,7 @@ if [ $# -gt 0 ]; then
             -p|--print)
                 # already added, skip
                 ;;
-            --output-format)
+            --output-format|--model)
                 EXPECT_VALUE="$arg"
                 ;;
             --output-format=*)
@@ -123,8 +124,11 @@ if [ $# -gt 0 ]; then
                 esac
                 PASS_ARGS+=("$arg")
                 ;;
+            --model=*)
+                PASS_ARGS+=("$arg")
+                ;;
             -*)
-                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --ephemeral, --no-update)"
+                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --ephemeral, --no-update)"
                 exit 1
                 ;;
             *)
