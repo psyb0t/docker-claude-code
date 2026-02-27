@@ -81,6 +81,7 @@ fi
 
 # Parse and validate args
 if [ $# -gt 0 ]; then
+    PROGRAMMATIC=1
     EPHEMERAL=0
     NEEDS_VERBOSE=0
     PASS_ARGS=(-p)
@@ -160,19 +161,21 @@ else
     rm -f "$UPDATE_FILE"
 fi
 
+log() { [ "${PROGRAMMATIC:-0}" = "0" ] && echo "$@"; }
+
 # Wait for container to not be running (another session might be using it)
 if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "⏳ Container '$container_name' is busy. Waiting for it to finish..."
+    log "⏳ Container '$container_name' is busy. Waiting for it to finish..."
     for i in 1 2 3; do
         sleep $((5 * i))
         if ! docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-            echo "✅ Container is free."
+            log "✅ Container is free."
             break
         fi
-        echo "   attempt $i/3..."
+        log "   attempt $i/3..."
     done
     if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-        echo "❌ Container is still busy after 3 attempts. Try again later."
+        echo "❌ Container is still busy after 3 attempts. Try again later." >&2
         rm -f "$HOME/.claude/.${container_name}-args"
         exit 1
     fi
@@ -180,10 +183,10 @@ fi
 
 # Start existing container or create new one
 if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    echo "🔄 Starting container '$container_name'..."
+    log "🔄 Starting container '$container_name'..."
     docker start -ai "$container_name"
 else
-    echo "🔧 Creating container '$container_name'..."
+    log "🔧 Creating container '$container_name'..."
     docker run -it --name "$container_name" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest
 fi
 EOF
