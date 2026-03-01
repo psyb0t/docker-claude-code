@@ -169,8 +169,8 @@ if [ $# -gt 0 ]; then
     dbg "EPHEMERAL=$EPHEMERAL NEEDS_VERBOSE=$NEEDS_VERBOSE"
 
     if [ "$EPHEMERAL" = "1" ]; then
-        dbg "ephemeral: docker run -i --rm --name ${container_name}_ephemeral_$$"
-        docker run -i --rm --name "${container_name}_ephemeral_$$" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
+        dbg "ephemeral: docker run --rm --name ${container_name}_ephemeral_$$"
+        docker run --rm --name "${container_name}_ephemeral_$$" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
         dbg "ephemeral: docker exited with $?"
         exit 0
     fi
@@ -179,15 +179,15 @@ if [ $# -gt 0 ]; then
     prog_name="${container_name}_prog"
     dbg "prog container: $prog_name"
     if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
-        dbg "prog: container does not exist, creating with docker run -i"
-        docker run -i --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
+        dbg "prog: container does not exist, creating with docker run"
+        docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
         dbg "prog: docker run exited with $?"
     else
         dbg "prog: container exists, writing args file and starting"
         printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
         trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
-        dbg "prog: docker start -ai $prog_name"
-        docker start -ai "$prog_name"
+        dbg "prog: docker start -a $prog_name"
+        docker start -a "$prog_name"
         dbg "prog: docker start exited with $?"
     fi
     exit 0
