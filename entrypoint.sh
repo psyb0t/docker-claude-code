@@ -190,4 +190,4 @@ else
 	CMD="$CMD && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
 fi
 
-exec su - claude -c "$CMD"
+exec runuser -u claude -- bash -c "$CMD"
