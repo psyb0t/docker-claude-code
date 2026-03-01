@@ -211,6 +211,8 @@ else
 	CMD="$CMD && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
 fi
 
-dbg "exec: runuser -u claude -- bash -c \"...\""
+CLAUDE_UID=$(id -u claude)
+CLAUDE_GID=$(id -g claude)
+dbg "exec: setpriv --reuid=$CLAUDE_UID --regid=$CLAUDE_GID --init-groups bash -c \"...\""
 dbg "CMD: $CMD"
-exec runuser -u claude -- bash -c "$CMD"
+exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups bash -c "$CMD"
