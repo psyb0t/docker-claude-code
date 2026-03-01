@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-echo "🚀 Starting Claude Code setup..."
+BIN_NAME="${1:-${CLAUDE_BIN_NAME:-claude}}"
+BIN_PATH="/usr/local/bin/$BIN_NAME"
+
+echo "🚀 Starting Claude Code setup (binary: $BIN_NAME)..."
 
 # Check for Docker
 if ! command -v docker &>/dev/null; then
@@ -31,13 +34,16 @@ fi
 echo "📦 Pulling latest Claude Code image..."
 docker pull psyb0t/claude-code:latest
 
-echo "📝 Creating claude command script..."
-sudo tee /usr/local/bin/claude <<'EOF' >/dev/null
+echo "📝 Creating $BIN_NAME command script..."
+sudo tee "$BIN_PATH" <<'EOF' >/dev/null
 #!/usr/bin/env bash
 
 # Git identity - use env var if set, otherwise empty
 CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
 CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
+
+# Claude data dir - override with CLAUDE_DATA_DIR env var
+CLAUDE_DIR="${CLAUDE_DATA_DIR:-$HOME/.claude}"
 
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
@@ -50,7 +56,7 @@ DOCKER_ARGS=(
     -e CLAUDE_WORKSPACE="$PWD"
     -e CLAUDE_CONTAINER_NAME="$container_name"
     -v "$HOME/.ssh/claude-code:/home/claude/.ssh"
-    -v "$HOME/.claude:/home/claude/.claude"
+    -v "$CLAUDE_DIR:/home/claude/.claude"
     -v "$PWD:$PWD"
     -v /var/run/docker.sock:/var/run/docker.sock
 )
@@ -59,8 +65,8 @@ DOCKER_ARGS=(
 [ -n "$ANTHROPIC_API_KEY" ] && DOCKER_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && DOCKER_ARGS+=(-e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
 AUTH_CONTENT=$(printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
-echo "$AUTH_CONTENT" > "$HOME/.claude/.${container_name}-auth"
-echo "$AUTH_CONTENT" > "$HOME/.claude/.${container_name}_prog-auth"
+echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}-auth"
+echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}_prog-auth"
 
 # check for --no-update before anything else
 NO_UPDATE=0
@@ -157,15 +163,15 @@ if [ $# -gt 0 ]; then
         docker run -i --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
     else
         # container exists — pass args via file, start it
-        printf '%q ' "${PASS_ARGS[@]}" > "$HOME/.claude/.${prog_name}-args"
-        trap 'rm -f "$HOME/.claude/.${prog_name}-args"' EXIT
+        printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
+        trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
         docker start -ai "$prog_name"
     fi
     exit 0
 fi
 
 # signal update via file (env vars don't work with docker start)
-UPDATE_FILE="$HOME/.claude/.${container_name}-update"
+UPDATE_FILE="$CLAUDE_DIR/.${container_name}-update"
 if [ "$NO_UPDATE" = "0" ]; then
     touch "$UPDATE_FILE"
 else
@@ -199,10 +205,10 @@ else
 fi
 EOF
 
-echo "🔧 Making claude command executable..."
-sudo chmod +x /usr/local/bin/claude
+echo "🔧 Making $BIN_NAME command executable..."
+sudo chmod +x "$BIN_PATH"
 
-echo "✅ Claude Code setup complete! You can now use 'claude' command from any directory."
+echo "✅ Claude Code setup complete! You can now use '$BIN_NAME' command from any directory."
 echo ""
 echo "🔑 Don't forget to add your public key to GitHub:"
 echo "   $HOME/.ssh/claude-code/id_ed25519.pub"

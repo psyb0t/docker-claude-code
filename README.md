@@ -47,6 +47,16 @@ There's an install script that sets everything up automatically:
 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
 ```
 
+To install as a different binary name (e.g. to avoid collision with a native `claude` install):
+
+```bash
+# as argument
+curl -fsSL .../install.sh | bash -s -- dclaude
+
+# or via env var
+CLAUDE_BIN_NAME=dclaude curl -fsSL .../install.sh | bash
+```
+
 Or if you prefer manual control:
 
 ### Create settings dir
@@ -98,6 +108,14 @@ CLAUDE_CODE_OAUTH_TOKEN=xxx claude "do stuff"
 ANTHROPIC_API_KEY=sk-ant-xxx claude "do stuff"
 ```
 
+To use a different `.claude` data directory (config, sessions, auth, plugins, etc.):
+
+```bash
+CLAUDE_DATA_DIR=/path/to/.claude claude "do stuff"
+```
+
+Defaults to `~/.claude` if not set.
+
 ## 🧙 Usage
 
 ### Interactive mode
@@ -133,7 +151,7 @@ claude "list all TODOs" --output-format stream-json | jq .
 claude "what does this repo do"
 ```
 
-Uses the same container as interactive mode — custom installs persist and `--continue` is passed automatically so programmatic runs pick up your last interactive session.
+Uses its own `_prog` container (no TTY — works from scripts, cron, other tools). `--continue` is passed automatically so programmatic runs share session context via the mounted `.claude` data dir.
 
 #### Model selection
 
@@ -240,6 +258,7 @@ claude --ephemeral "quick question" --output-format json
 - The container user's UID/GID is automatically matched to the host directory owner, so file permissions just work.
 - Docker socket is mounted so Claude can spawn containers within containers. Docker-in-Docker madness enabled.
 - Workspace trust dialog is pre-accepted automatically — no confirmation prompts on startup.
+- Three container types per workspace: `claude-_path` (interactive, with TTY), `claude-_path_prog` (programmatic, no TTY), `claude-_path_ephemeral_PID` (throwaway, no TTY). Programmatic runs without TTY so they work from scripts, cron jobs, and other tools.
 
 ## 📜 License
 
