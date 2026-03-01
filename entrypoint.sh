@@ -1,13 +1,21 @@
 #!/bin/bash
 
+dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
+
+dbg "entrypoint start, args: $*"
+dbg "CLAUDE_CONTAINER_NAME=$CLAUDE_CONTAINER_NAME"
+dbg "CLAUDE_WORKSPACE=$CLAUDE_WORKSPACE"
+
 # fix docker socket permissions by matching the container's docker group GID to the socket's GID
 if [ -S /var/run/docker.sock ]; then
 	SOCKET_GID=$(stat -c '%g' /var/run/docker.sock)
 	CURRENT_DOCKER_GID=$(getent group docker | cut -d: -f3)
 	if [ "$SOCKET_GID" != "$CURRENT_DOCKER_GID" ]; then
+		dbg "fixing docker socket GID: $CURRENT_DOCKER_GID -> $SOCKET_GID"
 		groupmod -g "$SOCKET_GID" docker
 	fi
 fi
+dbg "docker socket done"
 
 # match claude user's UID/GID to the host directory owner (skip if root)
 if [ -n "$CLAUDE_WORKSPACE" ] && [ -d "$CLAUDE_WORKSPACE" ]; then
@@ -18,19 +26,27 @@ if [ -n "$CLAUDE_WORKSPACE" ] && [ -d "$CLAUDE_WORKSPACE" ]; then
 
 	if [ "$HOST_UID" != "0" ] && [ "$HOST_GID" != "0" ]; then
 		if [ "$HOST_GID" != "$CURRENT_GID" ]; then
+			dbg "fixing GID: $CURRENT_GID -> $HOST_GID"
 			groupmod -g "$HOST_GID" claude
 		fi
 		if [ "$HOST_UID" != "$CURRENT_UID" ]; then
+			dbg "fixing UID: $CURRENT_UID -> $HOST_UID"
 			usermod -u "$HOST_UID" claude
 		fi
+		dbg "chown -R claude:claude /home/claude"
 		chown -R claude:claude /home/claude
+		dbg "chown done"
 	fi
 fi
+dbg "uid/gid matching done"
 
 WORKSPACE_DIR="${CLAUDE_WORKSPACE:-/workspace}"
 
+dbg "WORKSPACE_DIR=$WORKSPACE_DIR"
+
 # create CLAUDE.md if it doesn't exist in workspace
 if [ ! -f "$WORKSPACE_DIR/CLAUDE.md" ]; then
+	dbg "creating CLAUDE.md in workspace"
 	cat >"$WORKSPACE_DIR/CLAUDE.md" <<'CLAUDEMD'
 # Available Tools in This Container
 
@@ -126,19 +142,18 @@ CLAUDE_JSON="$CLAUDE_CONFIG_DIR/.claude.json"
 
 mkdir -p "$CLAUDE_CONFIG_DIR"
 
+dbg "configuring .claude.json"
 if [ -f "$CLAUDE_JSON" ]; then
-	# user has existing config, ensure native install props are set
 	UPDATED=$(jq '.installMethod = "native" | .autoUpdates = false | .autoUpdatesProtectedForNative = true' "$CLAUDE_JSON")
 	echo "$UPDATED" > "$CLAUDE_JSON"
 else
-	# no config exists, copy the template from the image
 	cp /claude/.claude.json "$CLAUDE_JSON"
 fi
 
-# pre-accept workspace trust dialog for the workspace dir
 UPDATED=$(jq --arg dir "$WORKSPACE_DIR" '.projects[$dir].hasTrustDialogAccepted = true' "$CLAUDE_JSON")
 echo "$UPDATED" > "$CLAUDE_JSON"
 chown -R claude:claude "$CLAUDE_CONFIG_DIR"
+dbg ".claude.json done"
 
 # build the command to run as claude
 # we use su with a login shell to get the proper environment
@@ -157,37 +172,45 @@ fi
 
 # load auth env vars from file (for existing containers that can't get new env vars)
 AUTH_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-auth"
+dbg "auth file: $AUTH_FILE (exists: $([ -f "$AUTH_FILE" ] && echo yes || echo no))"
 if [ -f "$AUTH_FILE" ]; then
 	while IFS='=' read -r name value; do
-		[ -n "$value" ] && CMD="$CMD && export $name=\"$value\""
+		if [ -n "$value" ]; then
+			dbg "auth: loading $name from file"
+			CMD="$CMD && export $name=\"$value\""
+		fi
 	done < "$AUTH_FILE"
 fi
 
 ARGS_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-args"
 UPDATE_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-update"
 if [ "${1:-}" = "setup-token" ]; then
-	# setup-token — just run it directly
+	dbg "mode: setup-token"
 	CMD="$CMD && exec claude setup-token"
 elif [ $# -gt 0 ]; then
-	# args passed directly via docker run (ephemeral or first programmatic run)
 	ESCAPED_ARGS=$(printf '%q ' "$@")
 	if [[ "$CLAUDE_CONTAINER_NAME" == *_ephemeral_* ]]; then
+		dbg "mode: ephemeral, args: $ESCAPED_ARGS"
 		CMD="$CMD && exec claude --dangerously-skip-permissions --no-session-persistence $ESCAPED_ARGS"
 	else
+		dbg "mode: programmatic (first run), args: $ESCAPED_ARGS"
 		CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
 	fi
 elif [ -f "$ARGS_FILE" ]; then
-	# programmatic — args passed via file (subsequent runs on _prog container)
 	ESCAPED_ARGS=$(cat "$ARGS_FILE")
 	rm -f "$ARGS_FILE"
+	dbg "mode: programmatic (subsequent), args: $ESCAPED_ARGS"
 	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
 else
-	# interactive
+	dbg "mode: interactive"
 	if [ -f "$UPDATE_FILE" ]; then
 		rm -f "$UPDATE_FILE"
+		dbg "running claude update"
 		CMD="$CMD && claude update"
 	fi
 	CMD="$CMD && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
 fi
 
+dbg "exec: runuser -u claude -- bash -c \"...\""
+dbg "CMD: $CMD"
 exec runuser -u claude -- bash -c "$CMD"

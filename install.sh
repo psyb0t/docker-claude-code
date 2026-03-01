@@ -38,6 +38,8 @@ echo "📝 Creating $BIN_NAME command script..."
 sudo tee "$BIN_PATH" <<'EOF' >/dev/null
 #!/usr/bin/env bash
 
+dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
+
 # Git identity - use env var if set, otherwise empty
 CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
 CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
@@ -48,6 +50,9 @@ CLAUDE_DIR="${CLAUDE_DATA_DIR:-$HOME/.claude}"
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
 container_name="claude-${sanitized_pwd}"
+dbg "container_name=$container_name"
+dbg "CLAUDE_DIR=$CLAUDE_DIR"
+dbg "PWD=$PWD"
 
 DOCKER_ARGS=(
     --network host
@@ -61,12 +66,16 @@ DOCKER_ARGS=(
     -v /var/run/docker.sock:/var/run/docker.sock
 )
 
-# forward auth env vars to the container and save them for existing containers
+# forward env vars to the container
 [ -n "$ANTHROPIC_API_KEY" ] && DOCKER_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && DOCKER_ARGS+=(-e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
+[ "$DEBUG" = "true" ] && DOCKER_ARGS+=(-e "DEBUG=true")
+dbg "ANTHROPIC_API_KEY set: $([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no)"
+dbg "CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo yes || echo no)"
 AUTH_CONTENT=$(printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
 echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}-auth"
 echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}_prog-auth"
+dbg "wrote auth files"
 
 # check for --no-update before anything else
 NO_UPDATE=0
@@ -152,20 +161,30 @@ if [ $# -gt 0 ]; then
 
     [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
 
+    dbg "PASS_ARGS: ${PASS_ARGS[*]}"
+    dbg "EPHEMERAL=$EPHEMERAL NEEDS_VERBOSE=$NEEDS_VERBOSE"
+
     if [ "$EPHEMERAL" = "1" ]; then
+        dbg "ephemeral: docker run -i --rm --name ${container_name}_ephemeral_$$"
         docker run -i --rm --name "${container_name}_ephemeral_$$" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
+        dbg "ephemeral: docker exited with $?"
         exit 0
     fi
 
     # Programmatic mode — own container, no TTY
     prog_name="${container_name}_prog"
+    dbg "prog container: $prog_name"
     if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
+        dbg "prog: container does not exist, creating with docker run -i"
         docker run -i --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
+        dbg "prog: docker run exited with $?"
     else
-        # container exists — pass args via file, start it
+        dbg "prog: container exists, writing args file and starting"
         printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
         trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
+        dbg "prog: docker start -ai $prog_name"
         docker start -ai "$prog_name"
+        dbg "prog: docker start exited with $?"
     fi
     exit 0
 fi
