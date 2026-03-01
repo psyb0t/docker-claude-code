@@ -100,6 +100,7 @@ if [ $# -gt 0 ]; then
     PROGRAMMATIC=1
     EPHEMERAL=0
     NEEDS_VERBOSE=0
+    HAS_OUTPUT_FORMAT=0
     PASS_ARGS=(-p)
     EXPECT_VALUE=""
     for arg in "$@"; do
@@ -111,6 +112,7 @@ if [ $# -gt 0 ]; then
         if [ -n "$EXPECT_VALUE" ]; then
             case "$EXPECT_VALUE" in
                 --output-format)
+                    HAS_OUTPUT_FORMAT=1
                     case "$arg" in
                         text|json) ;;
                         stream-json) NEEDS_VERBOSE=1 ;;
@@ -132,6 +134,7 @@ if [ $# -gt 0 ]; then
                 EXPECT_VALUE="$arg"
                 ;;
             --output-format=*)
+                HAS_OUTPUT_FORMAT=1
                 fmt="${arg#--output-format=}"
                 case "$fmt" in
                     text|json) ;;
@@ -160,6 +163,7 @@ if [ $# -gt 0 ]; then
     fi
 
     [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
+    [ "$HAS_OUTPUT_FORMAT" = "0" ] && PASS_ARGS+=(--output-format text)
 
     dbg "PASS_ARGS: ${PASS_ARGS[*]}"
     dbg "EPHEMERAL=$EPHEMERAL NEEDS_VERBOSE=$NEEDS_VERBOSE"

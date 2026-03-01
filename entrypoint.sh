@@ -187,6 +187,12 @@ UPDATE_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-update"
 if [ "${1:-}" = "setup-token" ]; then
 	dbg "mode: setup-token"
 	CMD="$CMD && exec claude setup-token"
+elif [ -f "$ARGS_FILE" ]; then
+	# args file takes priority (subsequent runs on _prog container via docker start)
+	ESCAPED_ARGS=$(cat "$ARGS_FILE")
+	rm -f "$ARGS_FILE"
+	dbg "mode: programmatic (subsequent), args: $ESCAPED_ARGS"
+	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
 elif [ $# -gt 0 ]; then
 	ESCAPED_ARGS=$(printf '%q ' "$@")
 	if [[ "$CLAUDE_CONTAINER_NAME" == *_ephemeral_* ]]; then
@@ -196,11 +202,6 @@ elif [ $# -gt 0 ]; then
 		dbg "mode: programmatic (first run), args: $ESCAPED_ARGS"
 		CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
 	fi
-elif [ -f "$ARGS_FILE" ]; then
-	ESCAPED_ARGS=$(cat "$ARGS_FILE")
-	rm -f "$ARGS_FILE"
-	dbg "mode: programmatic (subsequent), args: $ESCAPED_ARGS"
-	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
 else
 	dbg "mode: interactive"
 	if [ -f "$UPDATE_FILE" ]; then
