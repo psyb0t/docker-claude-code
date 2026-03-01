@@ -56,10 +56,11 @@ DOCKER_ARGS=(
 )
 
 # forward auth env vars to the container and save them for existing containers
-AUTH_FILE="$HOME/.claude/.${container_name}-auth"
 [ -n "$ANTHROPIC_API_KEY" ] && DOCKER_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && DOCKER_ARGS+=(-e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
-printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$AUTH_FILE"
+AUTH_CONTENT=$(printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
+echo "$AUTH_CONTENT" > "$HOME/.claude/.${container_name}-auth"
+echo "$AUTH_CONTENT" > "$HOME/.claude/.${container_name}_prog-auth"
 
 # check for --no-update before anything else
 NO_UPDATE=0
@@ -146,51 +147,54 @@ if [ $# -gt 0 ]; then
     [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
 
     if [ "$EPHEMERAL" = "1" ]; then
-        RUN_ARGS=(--rm --name "${container_name}_ephemeral_$$")
-        [ -t 1 ] && RUN_ARGS+=(-t)
-        docker run -i "${RUN_ARGS[@]}" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
+        docker run -i --rm --name "${container_name}_ephemeral_$$" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
         exit 0
     fi
 
-    # Programmatic mode — same container as interactive, pass args via file
-    printf '%q ' "${PASS_ARGS[@]}" > "$HOME/.claude/.${container_name}-args"
-    trap 'rm -f "$HOME/.claude/.${container_name}-args"' EXIT
+    # Programmatic mode — own container, no TTY
+    prog_name="${container_name}_prog"
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
+        docker run -i --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
+    else
+        # container exists — pass args via file, start it
+        printf '%q ' "${PASS_ARGS[@]}" > "$HOME/.claude/.${prog_name}-args"
+        trap 'rm -f "$HOME/.claude/.${prog_name}-args"' EXIT
+        docker start -ai "$prog_name"
+    fi
+    exit 0
 fi
 
 # signal update via file (env vars don't work with docker start)
 UPDATE_FILE="$HOME/.claude/.${container_name}-update"
-if [ $# -eq 0 ] && [ "$NO_UPDATE" = "0" ]; then
+if [ "$NO_UPDATE" = "0" ]; then
     touch "$UPDATE_FILE"
 else
     rm -f "$UPDATE_FILE"
 fi
 
-log() { [ "${PROGRAMMATIC:-0}" = "0" ] && echo "$@"; }
-
 # Wait for container to not be running (another session might be using it)
 if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    log "⏳ Container '$container_name' is busy. Waiting for it to finish..."
+    echo "⏳ Container '$container_name' is busy. Waiting for it to finish..."
     for i in 1 2 3; do
         sleep $((5 * i))
         if ! docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-            log "✅ Container is free."
+            echo "✅ Container is free."
             break
         fi
-        log "   attempt $i/3..."
+        echo "   attempt $i/3..."
     done
     if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
         echo "❌ Container is still busy after 3 attempts. Try again later." >&2
-        rm -f "$HOME/.claude/.${container_name}-args"
         exit 1
     fi
 fi
 
-# Start existing container or create new one
+# Interactive — start existing container or create new one
 if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-    log "🔄 Starting container '$container_name'..."
+    echo "🔄 Starting container '$container_name'..."
     docker start -ai "$container_name"
 else
-    log "🔧 Creating container '$container_name'..."
+    echo "🔧 Creating container '$container_name'..."
     docker run -it --name "$container_name" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest
 fi
 EOF

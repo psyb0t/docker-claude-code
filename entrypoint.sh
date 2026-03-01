@@ -169,11 +169,15 @@ if [ "${1:-}" = "setup-token" ]; then
 	# setup-token — just run it directly
 	CMD="$CMD && exec claude setup-token"
 elif [ $# -gt 0 ]; then
-	# ephemeral — args passed directly via docker run
+	# args passed directly via docker run (ephemeral or first programmatic run)
 	ESCAPED_ARGS=$(printf '%q ' "$@")
-	CMD="$CMD && exec claude --dangerously-skip-permissions --no-session-persistence $ESCAPED_ARGS"
+	if [[ "$CLAUDE_CONTAINER_NAME" == *_ephemeral_* ]]; then
+		CMD="$CMD && exec claude --dangerously-skip-permissions --no-session-persistence $ESCAPED_ARGS"
+	else
+		CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
+	fi
 elif [ -f "$ARGS_FILE" ]; then
-	# programmatic — args passed via file from wrapper
+	# programmatic — args passed via file (subsequent runs on _prog container)
 	ESCAPED_ARGS=$(cat "$ARGS_FILE")
 	rm -f "$ARGS_FILE"
 	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
