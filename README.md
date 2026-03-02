@@ -31,7 +31,6 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Auto-updates claude on interactive startup (skip with `--no-update`), background auto-updater disabled
 - Workspace trust dialog is automatically pre-accepted (no annoying prompts)
 - Programmatic mode support — just pass a prompt and optional `--output-format` (`-p` is added automatically)
-- `--ephemeral` flag for throwaway containers that auto-remove after exit
 
 ## 📋 Requirements
 
@@ -130,7 +129,7 @@ Starts an interactive session. The container is named by directory path and pers
 claude --no-update
 ```
 
-Programmatic and ephemeral runs never auto-update.
+Programmatic runs never auto-update.
 
 ### Programmatic mode
 
@@ -242,14 +241,6 @@ When Claude calls a tool, content contains a `tool_use` block:
 
 A typical multi-step run produces: `system` → (`assistant` → `user`)× repeated per tool call → `rate_limit_event` between turns → final `assistant` text → `result`.
 
-### Ephemeral mode
-
-Add `--ephemeral` for a throwaway container that auto-removes after exit with no session persistence:
-
-```bash
-claude --ephemeral "quick question" --output-format json
-```
-
 ## 🦴 Gotchas
 
 - This tool uses `--dangerously-skip-permissions`. Because Claude likes to live fast and break sandboxes.
@@ -258,7 +249,7 @@ claude --ephemeral "quick question" --output-format json
 - The container user's UID/GID is automatically matched to the host directory owner, so file permissions just work.
 - Docker socket is mounted so Claude can spawn containers within containers. Docker-in-Docker madness enabled.
 - Workspace trust dialog is pre-accepted automatically — no confirmation prompts on startup.
-- Three container types per workspace: `claude-_path` (interactive, with TTY), `claude-_path_prog` (programmatic, no TTY), `claude-_path_ephemeral_PID` (throwaway, no TTY). Programmatic runs without TTY so they work from scripts, cron jobs, and other tools.
+- Two container types per workspace: `claude-_path` (interactive, with TTY), `claude-_path_prog` (programmatic, no TTY). Programmatic runs without TTY so they work from scripts, cron jobs, and other tools.
 
 ## 📜 License
 

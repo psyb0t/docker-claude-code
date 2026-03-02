@@ -97,18 +97,11 @@ fi
 
 # Parse and validate args
 if [ $# -gt 0 ]; then
-    PROGRAMMATIC=1
-    EPHEMERAL=0
     NEEDS_VERBOSE=0
     HAS_OUTPUT_FORMAT=0
     PASS_ARGS=(-p)
     EXPECT_VALUE=""
     for arg in "$@"; do
-        if [ "$arg" = "--ephemeral" ]; then
-            EPHEMERAL=1
-            continue
-        fi
-
         if [ -n "$EXPECT_VALUE" ]; then
             case "$EXPECT_VALUE" in
                 --output-format)
@@ -147,7 +140,7 @@ if [ $# -gt 0 ]; then
                 PASS_ARGS+=("$arg")
                 ;;
             -*)
-                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --ephemeral, --no-update)"
+                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --no-update)"
                 exit 1
                 ;;
             *)
@@ -166,14 +159,6 @@ if [ $# -gt 0 ]; then
     [ "$HAS_OUTPUT_FORMAT" = "0" ] && PASS_ARGS+=(--output-format text)
 
     dbg "PASS_ARGS: ${PASS_ARGS[*]}"
-    dbg "EPHEMERAL=$EPHEMERAL NEEDS_VERBOSE=$NEEDS_VERBOSE"
-
-    if [ "$EPHEMERAL" = "1" ]; then
-        dbg "ephemeral: docker run --rm --name ${container_name}_ephemeral_$$"
-        docker run --rm --name "${container_name}_ephemeral_$$" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest "${PASS_ARGS[@]}"
-        dbg "ephemeral: docker exited with $?"
-        exit 0
-    fi
 
     # Programmatic mode — own container, no TTY
     prog_name="${container_name}_prog"

@@ -195,13 +195,8 @@ elif [ -f "$ARGS_FILE" ]; then
 	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
 elif [ $# -gt 0 ]; then
 	ESCAPED_ARGS=$(printf '%q ' "$@")
-	if [[ "$CLAUDE_CONTAINER_NAME" == *_ephemeral_* ]]; then
-		dbg "mode: ephemeral, args: $ESCAPED_ARGS"
-		CMD="$CMD && exec claude --dangerously-skip-permissions --no-session-persistence $ESCAPED_ARGS"
-	else
-		dbg "mode: programmatic (first run), args: $ESCAPED_ARGS"
-		CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
-	fi
+	dbg "mode: programmatic (first run), args: $ESCAPED_ARGS"
+	CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
 else
 	dbg "mode: interactive"
 	if [ -f "$UPDATE_FILE" ]; then
