@@ -47,11 +47,15 @@ CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
 # Claude data dir - override with CLAUDE_DATA_DIR env var
 CLAUDE_DIR="${CLAUDE_DATA_DIR:-$HOME/.claude}"
 
+# SSH dir - override with CLAUDE_SSH_DIR env var
+CLAUDE_SSH="${CLAUDE_SSH_DIR:-$HOME/.ssh/claude-code}"
+
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
 container_name="claude-${sanitized_pwd}"
 dbg "container_name=$container_name"
 dbg "CLAUDE_DIR=$CLAUDE_DIR"
+dbg "CLAUDE_SSH=$CLAUDE_SSH"
 dbg "PWD=$PWD"
 
 DOCKER_ARGS=(
@@ -60,7 +64,7 @@ DOCKER_ARGS=(
     -e CLAUDE_GIT_EMAIL="$CLAUDE_GIT_EMAIL"
     -e CLAUDE_WORKSPACE="$PWD"
     -e CLAUDE_CONTAINER_NAME="$container_name"
-    -v "$HOME/.ssh/claude-code:/home/claude/.ssh"
+    -v "$CLAUDE_SSH:/home/claude/.ssh"
     -v "$CLAUDE_DIR:/home/claude/.claude"
     -v "$PWD:$PWD"
     -v /var/run/docker.sock:/var/run/docker.sock

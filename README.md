@@ -115,6 +115,14 @@ CLAUDE_DATA_DIR=/path/to/.claude claude "do stuff"
 
 Defaults to `~/.claude` if not set.
 
+To use a different SSH directory:
+
+```bash
+CLAUDE_SSH_DIR=/path/to/.ssh claude "do stuff"
+```
+
+Defaults to `~/.ssh/claude-code` if not set.
+
 ## 🧙 Usage
 
 ### Interactive mode
