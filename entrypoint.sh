@@ -155,8 +155,24 @@ echo "$UPDATED" > "$CLAUDE_JSON"
 chown -R claude:claude "$CLAUDE_CONFIG_DIR"
 dbg ".claude.json done"
 
+# run init scripts on first container create (marker lives in container filesystem, not on mount)
+INIT_MARKER="/var/run/claude-initialized"
+if [ ! -f "$INIT_MARKER" ]; then
+	INIT_DIR="/home/claude/.claude/init.d"
+	if [ -d "$INIT_DIR" ]; then
+		dbg "first run: executing init scripts from $INIT_DIR"
+		for script in "$INIT_DIR"/*.sh; do
+			[ ! -f "$script" ] && continue
+			dbg "init: running $script"
+			bash "$script"
+			dbg "init: $script exited with $?"
+		done
+	fi
+	touch "$INIT_MARKER"
+	dbg "init marker created"
+fi
+
 # build the command to run as claude
-# we use su with a login shell to get the proper environment
 CMD="cd \"$WORKSPACE_DIR\""
 CMD="$CMD && export HOME=/home/claude"
 CMD="$CMD && export CLAUDE_CONFIG_DIR=/home/claude/.claude"
