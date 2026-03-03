@@ -32,6 +32,7 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Workspace trust dialog is automatically pre-accepted (no annoying prompts)
 - Programmatic mode support — just pass a prompt and optional `--output-format` (`-p` is added automatically)
 - Custom scripts via `~/.claude/bin` — drop executables there and they're in PATH inside the container
+- Init hooks via `~/.claude/init.d/*.sh` — run once on first container create (not on subsequent starts)
 - Debug logging (`DEBUG=true`) with timestamps in both wrapper and entrypoint
 
 ## 📋 Requirements
@@ -263,6 +264,38 @@ When Claude calls a tool, content contains a `tool_use` block:
 ```
 
 A typical multi-step run produces: `system` → (`assistant` → `user`)× repeated per tool call → `rate_limit_event` between turns → final `assistant` text → `result`.
+
+## 🔧 Customization
+
+### Custom scripts (`~/.claude/bin`)
+
+Drop executables into `~/.claude/bin/` on the host and they're in PATH inside every container session:
+
+```bash
+mkdir -p ~/.claude/bin
+echo '#!/bin/bash
+echo "hello from custom script"' > ~/.claude/bin/my-tool
+chmod +x ~/.claude/bin/my-tool
+
+# now available inside the container
+claude  # my-tool is in PATH
+```
+
+### Init hooks (`~/.claude/init.d`)
+
+Scripts in `~/.claude/init.d/*.sh` run once on first container create (as root, before dropping to claude user). They don't run again on subsequent `docker start` — only on fresh `docker run` after a container is removed.
+
+```bash
+mkdir -p ~/.claude/init.d
+cat > ~/.claude/init.d/setup-my-tools.sh << 'EOF'
+#!/bin/bash
+apt-get update && apt-get install -y some-package
+pip install some-library
+EOF
+chmod +x ~/.claude/init.d/setup-my-tools.sh
+```
+
+Useful for installing extra packages, configuring services, or any one-time setup that should survive container restarts but re-run on fresh containers.
 
 ## 🦴 Gotchas
 
