@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 BIN_NAME="${1:-${CLAUDE_BIN_NAME:-claude}}"
-BIN_PATH="/usr/local/bin/$BIN_NAME"
+INSTALL_DIR="${CLAUDE_INSTALL_DIR:-/usr/local/bin}"
+BIN_PATH="$INSTALL_DIR/$BIN_NAME"
 
 echo "🚀 Starting Claude Code setup (binary: $BIN_NAME)..."
 
