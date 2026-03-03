@@ -74,6 +74,14 @@ DOCKER_ARGS=(
 [ -n "$ANTHROPIC_API_KEY" ] && DOCKER_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && DOCKER_ARGS+=(-e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
 [ "$DEBUG" = "true" ] && DOCKER_ARGS+=(-e "DEBUG=true")
+
+# forward CLAUDE_ENV_* vars (strip prefix: CLAUDE_ENV_FOO=bar -> FOO=bar)
+while IFS='=' read -r name value; do
+    stripped="${name#CLAUDE_ENV_}"
+    DOCKER_ARGS+=(-e "$stripped=$value")
+    dbg "forwarding env: $stripped"
+done < <(env | grep "^CLAUDE_ENV_")
+
 dbg "ANTHROPIC_API_KEY set: $([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no)"
 dbg "CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo yes || echo no)"
 AUTH_CONTENT=$(printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
