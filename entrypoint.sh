@@ -160,7 +160,8 @@ dbg ".claude.json done"
 CMD="cd \"$WORKSPACE_DIR\""
 CMD="$CMD && export HOME=/home/claude"
 CMD="$CMD && export CLAUDE_CONFIG_DIR=/home/claude/.claude"
-CMD="$CMD && mkdir -p /home/claude/.claude"
+CMD="$CMD && mkdir -p /home/claude/.claude/bin"
+CMD="$CMD && export PATH=/home/claude/.claude/bin:\$PATH"
 
 if [ -n "$CLAUDE_GIT_NAME" ]; then
 	CMD="$CMD && git config --global user.name \"$CLAUDE_GIT_NAME\""

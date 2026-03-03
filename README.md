@@ -31,6 +31,8 @@ This image is for devs who live dangerously, commit anonymously, and like their 
 - Auto-updates claude on interactive startup (skip with `--no-update`), background auto-updater disabled
 - Workspace trust dialog is automatically pre-accepted (no annoying prompts)
 - Programmatic mode support — just pass a prompt and optional `--output-format` (`-p` is added automatically)
+- Custom scripts via `~/.claude/bin` — drop executables there and they're in PATH inside the container
+- Debug logging (`DEBUG=true`) with timestamps in both wrapper and entrypoint
 
 ## 📋 Requirements
 
@@ -77,13 +79,18 @@ Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub
 
 ## 🔐 ENV Vars
 
-| Variable   | What it does                      |
-| ---------- | --------------------------------- |
-| `CLAUDE_GIT_NAME`  | Git commit name inside the image (optional) |
-| `CLAUDE_GIT_EMAIL` | Git commit email inside the image (optional) |
-| `CLAUDE_WORKSPACE` | Host path to mount and work in (set automatically by wrapper script) |
-| `ANTHROPIC_API_KEY` | API key for authentication (forwarded to container if set) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication (forwarded to container if set) |
+| Variable | What it does | Default |
+| -------- | ------------ | ------- |
+| `CLAUDE_GIT_NAME` | Git commit name inside the container | *(none)* |
+| `CLAUDE_GIT_EMAIL` | Git commit email inside the container | *(none)* |
+| `ANTHROPIC_API_KEY` | API key for authentication | *(none)* |
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication | *(none)* |
+| `CLAUDE_DATA_DIR` | Custom `.claude` data directory (config, sessions, auth, plugins) | `~/.claude` |
+| `CLAUDE_SSH_DIR` | Custom SSH key directory | `~/.ssh/claude-code` |
+| `CLAUDE_INSTALL_DIR` | Custom install path for the wrapper script | `/usr/local/bin` |
+| `CLAUDE_BIN_NAME` | Custom binary name (alternative to passing as argument) | `claude` |
+| `CLAUDE_ENV_*` | Forward custom env vars to the container (prefix is stripped) | *(none)* |
+| `DEBUG` | Enable debug logging with timestamps in wrapper and entrypoint | *(none)* |
 
 To set these, export them on your host machine (e.g. in your `~/.bashrc` or `~/.zshrc`):
 
@@ -94,7 +101,9 @@ export CLAUDE_GIT_EMAIL="your@email.com"
 
 If not set, git inside the container won't have a default identity configured.
 
-For auth, either log in interactively or set up a long-lived OAuth token:
+### Authentication
+
+Either log in interactively or set up a long-lived OAuth token:
 
 ```bash
 # generate an OAuth token (interactive, one-time setup)
@@ -107,21 +116,27 @@ CLAUDE_CODE_OAUTH_TOKEN=xxx claude "do stuff"
 ANTHROPIC_API_KEY=sk-ant-xxx claude "do stuff"
 ```
 
-To use a different `.claude` data directory (config, sessions, auth, plugins, etc.):
+### Custom env vars
+
+Use the `CLAUDE_ENV_` prefix to forward arbitrary env vars into the container. The prefix is stripped:
 
 ```bash
+# GITHUB_TOKEN=xxx and MY_VAR=hello will be set inside the container
+CLAUDE_ENV_GITHUB_TOKEN=xxx CLAUDE_ENV_MY_VAR=hello claude "do stuff"
+```
+
+### Custom paths
+
+```bash
+# custom .claude data directory
 CLAUDE_DATA_DIR=/path/to/.claude claude "do stuff"
-```
 
-Defaults to `~/.claude` if not set.
-
-To use a different SSH directory:
-
-```bash
+# custom SSH key directory
 CLAUDE_SSH_DIR=/path/to/.ssh claude "do stuff"
-```
 
-Defaults to `~/.ssh/claude-code` if not set.
+# install to a different directory
+CLAUDE_INSTALL_DIR=/usr/bin curl -fsSL .../install.sh | bash
+```
 
 ## 🧙 Usage
 
@@ -258,6 +273,7 @@ A typical multi-step run produces: `system` → (`assistant` → `user`)× repea
 - Docker socket is mounted so Claude can spawn containers within containers. Docker-in-Docker madness enabled.
 - Workspace trust dialog is pre-accepted automatically — no confirmation prompts on startup.
 - Two container types per workspace: `claude-_path` (interactive, with TTY), `claude-_path_prog` (programmatic, no TTY). Programmatic runs without TTY so they work from scripts, cron jobs, and other tools.
+- `~/.claude/bin` is in PATH inside the container. Drop custom scripts there and they're available in every session.
 
 ## 📜 License
 
