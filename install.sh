@@ -83,6 +83,15 @@ while IFS='=' read -r name value; do
     dbg "forwarding env: $stripped"
 done < <(env | grep "^CLAUDE_ENV_")
 
+# mount extra volumes via CLAUDE_MOUNT_* (just a path = same path in container, with : = explicit source:dest)
+while IFS='=' read -r name value; do
+    case "$value" in
+        *:*) DOCKER_ARGS+=(-v "$value") ;;
+        *)   DOCKER_ARGS+=(-v "$value:$value") ;;
+    esac
+    dbg "mounting volume: $value"
+done < <(env | grep "^CLAUDE_MOUNT_")
+
 dbg "ANTHROPIC_API_KEY set: $([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no)"
 dbg "CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo yes || echo no)"
 AUTH_CONTENT=$(printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")

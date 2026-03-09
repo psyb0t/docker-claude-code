@@ -128,11 +128,18 @@ You are running in a Docker container with full sudo access. Here's what you hav
 
 ## Notes
 - You have passwordless sudo access
-- Docker socket may be mounted for docker-in-docker
+- Docker socket may be mounted for docker-in-docker. The workspace is mounted at the exact same path as on the host, so when running docker commands with volume mounts, use the workspace path as the base (e.g. -v "$PWD/data:/data" will resolve correctly on the host)
 - pyenv at /usr/local/pyenv
 - Go tools at /usr/local/bin
 - claude CLI at ~/.claude (native install, can self-update)
+- ~/.claude/bin is in PATH — custom scripts placed here by the user are available to you
+- ~/.claude/init.d/*.sh scripts run once on first container create (not on subsequent starts)
+- Extra host directories may be mounted via CLAUDE_MOUNT_* env vars — check what's available if you need files outside the workspace
+
+## IMPORTANT
+If you need to overwrite or restructure this CLAUDE.md file for your project, FIRST save the container environment notes above to your memory or to a separate file (e.g. ~/.claude/CONTAINER.md) so you don't lose the container-specific information. These notes are auto-generated only on first run and won't be recreated if the file already exists.
 CLAUDEMD
+	chown claude:claude "$WORKSPACE_DIR/CLAUDE.md"
 fi
 
 # ensure .claude.json has required native install properties

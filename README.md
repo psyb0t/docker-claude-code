@@ -91,6 +91,7 @@ Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub
 | `CLAUDE_INSTALL_DIR` | Custom install path for the wrapper script | `/usr/local/bin` |
 | `CLAUDE_BIN_NAME` | Custom binary name (alternative to passing as argument) | `claude` |
 | `CLAUDE_ENV_*` | Forward custom env vars to the container (prefix is stripped) | *(none)* |
+| `CLAUDE_MOUNT_*` | Mount extra volumes (path alone = same path in container, or `src:dest`) | *(none)* |
 | `DEBUG` | Enable debug logging with timestamps in wrapper and entrypoint | *(none)* |
 
 To set these, export them on your host machine (e.g. in your `~/.bashrc` or `~/.zshrc`):
@@ -125,6 +126,26 @@ Use the `CLAUDE_ENV_` prefix to forward arbitrary env vars into the container. T
 # GITHUB_TOKEN=xxx and MY_VAR=hello will be set inside the container
 CLAUDE_ENV_GITHUB_TOKEN=xxx CLAUDE_ENV_MY_VAR=hello claude "do stuff"
 ```
+
+### Extra volume mounts
+
+Use the `CLAUDE_MOUNT_` prefix to mount additional directories into the container:
+
+```bash
+# mount at the same path inside the container (just specify the host path)
+CLAUDE_MOUNT_DATA=/data claude "process the data"
+
+# mount multiple directories
+CLAUDE_MOUNT_1=/opt/configs CLAUDE_MOUNT_2=/var/logs claude "check logs"
+
+# explicit source:dest mapping
+CLAUDE_MOUNT_STUFF=/host/path:/container/path claude "do stuff"
+
+# read-only mount
+CLAUDE_MOUNT_RO=/data:/data:ro claude "read the data"
+```
+
+If the value contains `:`, it's used as-is (docker `-v` syntax). Otherwise, the path is mounted at the same location inside the container.
 
 ### Custom paths
 
