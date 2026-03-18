@@ -33,8 +33,10 @@ if [ -n "$CLAUDE_WORKSPACE" ] && [ -d "$CLAUDE_WORKSPACE" ]; then
 			dbg "fixing UID: $CURRENT_UID -> $HOST_UID"
 			usermod -u "$HOST_UID" claude
 		fi
-		dbg "chown -R claude:claude /home/claude"
-		chown -R claude:claude /home/claude
+		PARALLEL=$(( $(nproc) / 2 ))
+		[ "$PARALLEL" -lt 1 ] && PARALLEL=1
+		dbg "chown /home/claude (only misowned, $PARALLEL parallel)"
+		find /home/claude \( ! -user "$HOST_UID" -o ! -group "$HOST_GID" \) -print0 | xargs -0 -r -P "$PARALLEL" chown claude:claude
 		dbg "chown done"
 	fi
 fi
