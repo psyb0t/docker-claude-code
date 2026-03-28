@@ -201,6 +201,15 @@ if [ ! -f "$INIT_MARKER" ]; then
 	dbg "init marker created"
 fi
 
+# api mode — run fastapi server instead of claude
+if [ "${CLAUDE_MODE_API:-}" = "1" ]; then
+	dbg "mode: api server (port ${CLAUDE_MODE_API_PORT:-8080})"
+	CLAUDE_UID=$(id -u claude)
+	CLAUDE_GID=$(id -g claude)
+	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
+		bash -c "export HOME=/home/claude && export CLAUDE_CONFIG_DIR=/home/claude/.claude && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH && exec python3 /home/claude/api_server.py"
+fi
+
 # build the command to run as claude
 CMD="cd \"$WORKSPACE_DIR\""
 CMD="$CMD && export HOME=/home/claude"

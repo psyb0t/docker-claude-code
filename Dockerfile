@@ -12,6 +12,12 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
 
+# python3 + api server deps (needed for CLAUDE_MODE_API)
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --no-cache-dir fastapi uvicorn
+
 # docker (needed for docker-in-docker)
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
@@ -52,8 +58,9 @@ RUN mkdir -p /claude && \
 # workspace
 WORKDIR /workspace
 
-# entrypoint
+# entrypoint + api server
 COPY entrypoint.sh /home/claude/entrypoint.sh
+COPY api_server.py /home/claude/api_server.py
 RUN chmod +x /home/claude/entrypoint.sh
 
 ENTRYPOINT ["/home/claude/entrypoint.sh"]

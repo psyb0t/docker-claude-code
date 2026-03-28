@@ -134,6 +134,10 @@ From here, check `install.sh` to see how the wrapper script works if you want to
 
 ## 🔐 ENV Vars
 
+### Wrapper script vars
+
+Set these on your host machine (e.g. in `~/.bashrc` or `~/.zshrc`). The wrapper script forwards them to the container.
+
 | Variable                  | What it does                                                             | Default              |
 | ------------------------- | ------------------------------------------------------------------------ | -------------------- |
 | `CLAUDE_GIT_NAME`         | Git commit name inside the container                                     | _(none)_             |
@@ -142,13 +146,24 @@ From here, check `install.sh` to see how the wrapper script works if you want to
 | `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                           | _(none)_             |
 | `CLAUDE_DATA_DIR`         | Custom `.claude` data directory (config, sessions, auth, plugins)        | `~/.claude`          |
 | `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                 | `~/.ssh/claude-code` |
-| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper script                               | `/usr/local/bin`     |
-| `CLAUDE_BIN_NAME`         | Custom binary name (alternative to passing as argument)                  | `claude`             |
+| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper script (install-time only)           | `/usr/local/bin`     |
+| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                   | `claude`             |
 | `CLAUDE_ENV_*`            | Forward custom env vars to the container (prefix is stripped)            | _(none)_             |
 | `CLAUDE_MOUNT_*`          | Mount extra volumes (path alone = same path in container, or `src:dest`) | _(none)_             |
 | `DEBUG`                   | Enable debug logging with timestamps in wrapper and entrypoint           | _(none)_             |
 
-To set these, export them on your host machine (e.g. in your `~/.bashrc` or `~/.zshrc`):
+### API mode vars
+
+Set these directly on the container (e.g. in docker-compose). Not used by the wrapper script.
+
+| Variable                         | What it does                                                                  | Default  |
+| -------------------------------- | ----------------------------------------------------------------------------- | -------- |
+| `CLAUDE_MODE_API`                | Set to `1` to run as HTTP API server instead of interactive/programmatic      | _(none)_ |
+| `CLAUDE_MODE_API_PORT`           | Port for the API server                                                       | `8080`   |
+| `CLAUDE_MODE_API_TOKEN`          | Bearer token to require for API requests (optional)                           | _(none)_ |
+| `CLAUDE_MODE_API_ROOT_WORKSPACE` | Root workspace — all request workspaces are joined under this path (required) | _(none)_ |
+
+To set wrapper vars, export them on your host:
 
 ```bash
 export CLAUDE_GIT_NAME="Your Name"
@@ -437,6 +452,51 @@ When Claude calls a tool, content contains a `tool_use` block:
 ```
 
 A typical multi-step run produces: `system` → (`assistant` → `user`)× repeated per tool call → `rate_limit_event` between turns → final `assistant` text → `result`.
+
+### API mode
+
+Set `CLAUDE_MODE_API=1` to run the container as an HTTP API server instead of interactive/programmatic mode. Useful for integrating Claude into other services via docker-compose.
+
+```yaml
+# docker-compose.yml
+services:
+  claude:
+    image: psyb0t/claude-code:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - CLAUDE_MODE_API=1
+      - CLAUDE_MODE_API_TOKEN=your-secret-token
+      - CLAUDE_MODE_API_ROOT_WORKSPACE=/workspaces/default
+      - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
+    volumes:
+      - ~/.claude:/home/claude/.claude
+      - /your/projects:/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+**`POST /run`** — run a prompt and stream back NDJSON:
+
+```bash
+curl -X POST http://localhost:8080/run \
+  -H "Authorization: Bearer your-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "what does this repo do", "workspace": "/workspaces/myproject"}' \
+  --no-buffer
+```
+
+Request body:
+
+| Field           | Type   | Description                                                                                                    | Default         |
+| --------------- | ------ | -------------------------------------------------------------------------------------------------------------- | --------------- |
+| `prompt`        | string | The prompt to send                                                                                             | required        |
+| `workspace`     | string | Subpath joined under `CLAUDE_MODE_API_ROOT_WORKSPACE` (e.g. `myproject` or `/foo/bar` both resolve under root) | root            |
+| `model`         | string | Model to use (same aliases as CLI)                                                                             | account default |
+| `output_format` | string | `text`, `json`, or `stream-json`                                                                               | `stream-json`   |
+
+Response is streamed NDJSON (`application/x-ndjson`) — same event format as `--output-format stream-json`.
+
+If the workspace is already processing a request, returns **`409 Conflict`** — the client should retry.
 
 ## 🔧 Customization
 
