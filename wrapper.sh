@@ -98,7 +98,7 @@ if [ $# -gt 0 ]; then
                         *) echo "❌ Invalid output format: $arg (allowed: text, json, stream-json)"; exit 1 ;;
                     esac
                     ;;
-                --model) ;;
+                --model|--system-prompt|--append-system-prompt|--json-schema) ;;
             esac
             PASS_ARGS+=("$EXPECT_VALUE" "$arg")
             EXPECT_VALUE=""
@@ -109,7 +109,7 @@ if [ $# -gt 0 ]; then
             -p|--print)
                 # already added, skip
                 ;;
-            --output-format|--model)
+            --output-format|--model|--system-prompt|--append-system-prompt|--json-schema)
                 EXPECT_VALUE="$arg"
                 ;;
             --output-format=*)
@@ -122,11 +122,11 @@ if [ $# -gt 0 ]; then
                 esac
                 PASS_ARGS+=("$arg")
                 ;;
-            --model=*)
+            --model=*|--system-prompt=*|--append-system-prompt=*|--json-schema=*)
                 PASS_ARGS+=("$arg")
                 ;;
             -*)
-                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --no-update)"
+                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --system-prompt, --append-system-prompt, --json-schema, --no-update)"
                 exit 1
                 ;;
             *)

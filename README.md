@@ -481,46 +481,76 @@ services:
 curl -X POST http://localhost:8080/run \
   -H "Authorization: Bearer your-secret-token" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "what does this repo do", "workspace": "/workspaces/myproject"}' \
-  --no-buffer
+  -d '{"prompt": "what does this repo do", "workspace": "/workspaces/myproject"}'
 ```
 
 Request body:
 
-| Field           | Type   | Description                                                                                                    | Default         |
-| --------------- | ------ | -------------------------------------------------------------------------------------------------------------- | --------------- |
-| `prompt`        | string | The prompt to send                                                                                             | required        |
-| `workspace`     | string | Subpath joined under `CLAUDE_MODE_API_ROOT_WORKSPACE` (e.g. `myproject` or `/foo/bar` both resolve under root) | root            |
-| `model`         | string | Model to use (same aliases as CLI)                                                                             | account default |
-| `output_format` | string | `text`, `json`, or `stream-json`                                                                               | `stream-json`   |
+| Field                  | Type   | Description                                                                                                    | Default         |
+| ---------------------- | ------ | -------------------------------------------------------------------------------------------------------------- | --------------- |
+| `prompt`               | string | The prompt to send                                                                                             | required        |
+| `workspace`            | string | Subpath joined under `CLAUDE_MODE_API_ROOT_WORKSPACE` (e.g. `myproject` or `/foo/bar` both resolve under root) | root            |
+| `model`                | string | Model to use (same aliases as CLI)                                                                             | account default |
+| `system_prompt`        | string | Replace the default system prompt entirely                                                                     | _(none)_        |
+| `append_system_prompt` | string | Append to the default system prompt                                                                            | _(none)_        |
+| `json_schema`          | string | JSON Schema for structured output (result in `structured_output` field)                                        | _(none)_        |
 
-Response is streamed NDJSON (`application/x-ndjson`) — same event format as `--output-format stream-json`.
+Response is always `application/json` — same format as `--output-format json`.
 
 If the workspace is already processing a request, returns **`409 Conflict`** — the client should retry.
 
-**`GET /file`** — download a file:
+**`GET /files/{path}`** — list a directory or download a file:
 
 ```bash
-curl "http://localhost:8080/file?workspace=myproject&path=src/main.py" \
+# list root workspace
+curl "http://localhost:8080/files" -H "Authorization: Bearer your-secret-token"
+
+# list a subdirectory
+curl "http://localhost:8080/files/myproject/src" \
+  -H "Authorization: Bearer your-secret-token"
+
+# download a file
+curl "http://localhost:8080/files/myproject/src/main.py" \
   -H "Authorization: Bearer your-secret-token"
 ```
 
-**`PUT /file`** — upload a file (creates parent dirs automatically):
+Directory listing returns `{"path": "myproject/src", "entries": [{"name": "foo.py", "type": "file", "size": 1234}, {"name": "lib", "type": "dir"}]}`.
+
+**`PUT /files/{path}`** — upload a file (creates parent dirs automatically):
 
 ```bash
-curl -X PUT "http://localhost:8080/file?workspace=myproject&path=src/main.py" \
+curl -X PUT "http://localhost:8080/files/myproject/src/main.py" \
   -H "Authorization: Bearer your-secret-token" \
   --data-binary @main.py
 ```
 
-**`DELETE /file`** — delete a file:
+**`DELETE /files/{path}`** — delete a file:
 
 ```bash
-curl -X DELETE "http://localhost:8080/file?workspace=myproject&path=src/old.py" \
+curl -X DELETE "http://localhost:8080/files/myproject/src/old.py" \
   -H "Authorization: Bearer your-secret-token"
 ```
 
-All file endpoints use the same `workspace` + `path` query params. `workspace` is relative to `CLAUDE_MODE_API_ROOT_WORKSPACE` (same as `/run`). Path traversal outside root is blocked.
+All paths are relative to `CLAUDE_MODE_API_ROOT_WORKSPACE`. Path traversal outside root is blocked.
+
+**`GET /health`** — health check (no auth required):
+
+```bash
+curl http://localhost:8080/health
+```
+
+**`GET /status`** — show which workspaces are busy:
+
+```bash
+curl http://localhost:8080/status -H "Authorization: Bearer your-secret-token"
+```
+
+**`POST /run/cancel`** — kill a running claude process:
+
+```bash
+curl -X POST "http://localhost:8080/run/cancel?workspace=myproject" \
+  -H "Authorization: Bearer your-secret-token"
+```
 
 ## 🔧 Customization
 
