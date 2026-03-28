@@ -204,6 +204,8 @@ fi
 # api mode — run fastapi server instead of claude
 if [ "${CLAUDE_MODE_API:-}" = "1" ]; then
 	dbg "mode: api server (port ${CLAUDE_MODE_API_PORT:-8080})"
+	mkdir -p /workspaces
+	chown claude:claude /workspaces
 	CLAUDE_UID=$(id -u claude)
 	CLAUDE_GID=$(id -g claude)
 	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
