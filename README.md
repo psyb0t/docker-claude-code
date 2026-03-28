@@ -262,6 +262,16 @@ claude "list all TODOs" --output-format stream-json | jq .
 
 # plain text output (default)
 claude "what does this repo do"
+
+# custom system prompt (replaces default)
+claude "review this" --system-prompt "You are a security auditor"
+
+# append to default system prompt
+claude "review this" --append-system-prompt "Focus on SQL injection"
+
+# structured output with JSON schema
+claude "extract the author and title" --output-format json \
+  --json-schema '{"type":"object","properties":{"author":{"type":"string"},"title":{"type":"string"}},"required":["author","title"]}'
 ```
 
 Uses its own `_prog` container (no TTY — works from scripts, cron, other tools). `--continue` is passed automatically so programmatic runs share session context via the mounted `.claude` data dir.
@@ -467,7 +477,7 @@ services:
     environment:
       - CLAUDE_MODE_API=1
       - CLAUDE_MODE_API_TOKEN=your-secret-token
-      - CLAUDE_MODE_API_ROOT_WORKSPACE=/workspaces/default
+      - CLAUDE_MODE_API_ROOT_WORKSPACE=/workspaces
       - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
     volumes:
       - ~/.claude:/home/claude/.claude
@@ -475,13 +485,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
 
-**`POST /run`** — run a prompt and stream back NDJSON:
+**`POST /run`** — run a prompt and return JSON:
 
 ```bash
 curl -X POST http://localhost:8080/run \
   -H "Authorization: Bearer your-secret-token" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "what does this repo do", "workspace": "/workspaces/myproject"}'
+  -d '{"prompt": "what does this repo do", "workspace": "myproject"}'
 ```
 
 Request body:
