@@ -89,6 +89,12 @@ There's an install script that sets everything up automatically:
 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
 ```
 
+To install the minimal image instead of full:
+
+```bash
+CLAUDE_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
+```
+
 To install as a different binary name (e.g. to avoid collision with a native `claude` install):
 
 ```bash
@@ -101,22 +107,30 @@ CLAUDE_BIN_NAME=dclaude curl -fsSL .../install.sh | bash
 
 Or if you prefer manual control:
 
-### Create settings dir
+### 1. Create dirs
 
 ```bash
 mkdir -p ~/.claude
+mkdir -p "$HOME/.ssh/claude-code"
 ```
 
-### 🥪 Generate SSH Keys
-
-If you don't have an SSH key pair yet, conjure one with:
+### 2. Generate SSH Keys
 
 ```bash
-mkdir -p "$HOME/.ssh/claude-code"
 ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
 ```
 
 Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub account or wherever you push code.
+
+### 3. Pull the image
+
+```bash
+docker pull psyb0t/claude-code:latest
+# or for minimal:
+docker pull psyb0t/claude-code:minimal
+```
+
+From here, check `install.sh` to see how the wrapper script works if you want to wire it up yourself.
 
 ## 🔐 ENV Vars
 
