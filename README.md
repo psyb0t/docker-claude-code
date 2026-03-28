@@ -498,6 +498,30 @@ Response is streamed NDJSON (`application/x-ndjson`) — same event format as `-
 
 If the workspace is already processing a request, returns **`409 Conflict`** — the client should retry.
 
+**`GET /file`** — download a file:
+
+```bash
+curl "http://localhost:8080/file?workspace=myproject&path=src/main.py" \
+  -H "Authorization: Bearer your-secret-token"
+```
+
+**`PUT /file`** — upload a file (creates parent dirs automatically):
+
+```bash
+curl -X PUT "http://localhost:8080/file?workspace=myproject&path=src/main.py" \
+  -H "Authorization: Bearer your-secret-token" \
+  --data-binary @main.py
+```
+
+**`DELETE /file`** — delete a file:
+
+```bash
+curl -X DELETE "http://localhost:8080/file?workspace=myproject&path=src/old.py" \
+  -H "Authorization: Bearer your-secret-token"
+```
+
+All file endpoints use the same `workspace` + `path` query params. `workspace` is relative to `CLAUDE_MODE_API_ROOT_WORKSPACE` (same as `/run`). Path traversal outside root is blocked.
+
 ## 🔧 Customization
 
 ### Custom scripts (`~/.claude/bin`)
