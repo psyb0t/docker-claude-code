@@ -65,6 +65,7 @@ class RunRequest(BaseModel):
     system_prompt: Optional[str] = None
     append_system_prompt: Optional[str] = None
     json_schema: Optional[str] = None
+    effort: Optional[str] = None
 
 
 def _build_args(req: RunRequest, with_continue: bool = False):
@@ -80,6 +81,8 @@ def _build_args(req: RunRequest, with_continue: bool = False):
         args += ["--append-system-prompt", req.append_system_prompt]
     if req.json_schema:
         args += ["--json-schema", req.json_schema]
+    if req.effort:
+        args += ["--effort", req.effort]
     return args
 
 

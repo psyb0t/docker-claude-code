@@ -262,6 +262,7 @@ else
 	CMD="$CMD && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
 fi
 
+
 CLAUDE_UID=$(id -u claude)
 CLAUDE_GID=$(id -g claude)
 dbg "exec: setpriv --reuid=$CLAUDE_UID --regid=$CLAUDE_GID --init-groups bash -c \"...\""

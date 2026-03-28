@@ -40,6 +40,7 @@ DOCKER_ARGS=(
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && DOCKER_ARGS+=(-e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN")
 [ "$DEBUG" = "true" ] && DOCKER_ARGS+=(-e "DEBUG=true")
 
+
 # forward CLAUDE_ENV_* vars (strip prefix: CLAUDE_ENV_FOO=bar -> FOO=bar)
 while IFS='=' read -r name value; do
     stripped="${name#CLAUDE_ENV_}"
@@ -98,7 +99,7 @@ if [ $# -gt 0 ]; then
                         *) echo "❌ Invalid output format: $arg (allowed: text, json, stream-json)"; exit 1 ;;
                     esac
                     ;;
-                --model|--system-prompt|--append-system-prompt|--json-schema) ;;
+                --model|--system-prompt|--append-system-prompt|--json-schema|--effort) ;;
             esac
             PASS_ARGS+=("$EXPECT_VALUE" "$arg")
             EXPECT_VALUE=""
@@ -109,7 +110,7 @@ if [ $# -gt 0 ]; then
             -p|--print)
                 # already added, skip
                 ;;
-            --output-format|--model|--system-prompt|--append-system-prompt|--json-schema)
+            --output-format|--model|--system-prompt|--append-system-prompt|--json-schema|--effort)
                 EXPECT_VALUE="$arg"
                 ;;
             --output-format=*)
@@ -122,11 +123,11 @@ if [ $# -gt 0 ]; then
                 esac
                 PASS_ARGS+=("$arg")
                 ;;
-            --model=*|--system-prompt=*|--append-system-prompt=*|--json-schema=*)
+            --model=*|--system-prompt=*|--append-system-prompt=*|--json-schema=*|--effort=*)
                 PASS_ARGS+=("$arg")
                 ;;
             -*)
-                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --system-prompt, --append-system-prompt, --json-schema, --no-update)"
+                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --system-prompt, --append-system-prompt, --json-schema, --effort, --no-update)"
                 exit 1
                 ;;
             *)

@@ -138,19 +138,19 @@ From here, check `install.sh` to see how the wrapper script works if you want to
 
 Set these on your host machine (e.g. in `~/.bashrc` or `~/.zshrc`). The wrapper script forwards them to the container.
 
-| Variable                  | What it does                                                             | Default              |
-| ------------------------- | ------------------------------------------------------------------------ | -------------------- |
-| `CLAUDE_GIT_NAME`         | Git commit name inside the container                                     | _(none)_             |
-| `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                    | _(none)_             |
-| `ANTHROPIC_API_KEY`       | API key for authentication                                               | _(none)_             |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                           | _(none)_             |
-| `CLAUDE_DATA_DIR`         | Custom `.claude` data directory (config, sessions, auth, plugins)        | `~/.claude`          |
-| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                 | `~/.ssh/claude-code` |
-| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper script (install-time only)           | `/usr/local/bin`     |
-| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                   | `claude`             |
-| `CLAUDE_ENV_*`            | Forward custom env vars to the container (prefix is stripped)            | _(none)_             |
-| `CLAUDE_MOUNT_*`          | Mount extra volumes (path alone = same path in container, or `src:dest`) | _(none)_             |
-| `DEBUG`                   | Enable debug logging with timestamps in wrapper and entrypoint           | _(none)_             |
+| Variable                  | What it does                                                             | Default                 |
+| ------------------------- | ------------------------------------------------------------------------ | ----------------------- |
+| `CLAUDE_GIT_NAME`         | Git commit name inside the container                                     | _(none)_                |
+| `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                    | _(none)_                |
+| `ANTHROPIC_API_KEY`       | API key for authentication                                               | _(none)_                |
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                           | _(none)_                |
+| `CLAUDE_DATA_DIR`         | Custom `.claude` data directory (config, sessions, auth, plugins)        | `~/.claude`             |
+| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                 | `~/.ssh/claude-code`    |
+| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper script (install-time only)           | `/usr/local/bin`        |
+| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                   | `claude`                |
+| `CLAUDE_ENV_*`            | Forward custom env vars to the container (prefix is stripped)            | _(none)_                |
+| `CLAUDE_MOUNT_*`          | Mount extra volumes (path alone = same path in container, or `src:dest`) | _(none)_                |
+| `DEBUG`                   | Enable debug logging with timestamps in wrapper and entrypoint           | _(none)_                |
 
 ### API mode vars
 
@@ -272,6 +272,10 @@ claude "review this" --append-system-prompt "Focus on SQL injection"
 # structured output with JSON schema
 claude "extract the author and title" --output-format json \
   --json-schema '{"type":"object","properties":{"author":{"type":"string"},"title":{"type":"string"}},"required":["author","title"]}'
+
+# set reasoning effort level
+claude "debug this complex issue" --effort high
+claude "quick question" --effort low
 ```
 
 Uses its own `_prog` container (no TTY — works from scripts, cron, other tools). `--continue` is passed automatically so programmatic runs share session context via the mounted `.claude` data dir.
@@ -504,6 +508,7 @@ Request body:
 | `system_prompt`        | string | Replace the default system prompt entirely                                                                     | _(none)_        |
 | `append_system_prompt` | string | Append to the default system prompt                                                                            | _(none)_        |
 | `json_schema`          | string | JSON Schema for structured output (result in `structured_output` field)                                        | _(none)_        |
+| `effort`               | string | Reasoning effort level (`low`, `medium`, `high`, `max`)                                                        | _(none)_        |
 
 Response is always `application/json` — same format as `--output-format json`.
 
