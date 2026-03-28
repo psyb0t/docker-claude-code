@@ -25,9 +25,7 @@ def _shutdown(sig, _frame):
 signal.signal(signal.SIGTERM, _shutdown)
 signal.signal(signal.SIGINT, _shutdown)
 
-ROOT_WORKSPACE = os.environ.get("CLAUDE_MODE_API_ROOT_WORKSPACE", "")
-if not ROOT_WORKSPACE:
-    raise RuntimeError("CLAUDE_MODE_API_ROOT_WORKSPACE is required")
+ROOT_WORKSPACE = "/workspaces"
 
 API_TOKEN = os.environ.get("CLAUDE_MODE_API_TOKEN", "")
 PORT = int(os.environ.get("CLAUDE_MODE_API_PORT", "8080"))

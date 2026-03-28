@@ -138,30 +138,29 @@ From here, check `install.sh` to see how the wrapper script works if you want to
 
 Set these on your host machine (e.g. in `~/.bashrc` or `~/.zshrc`). The wrapper script forwards them to the container.
 
-| Variable                  | What it does                                                             | Default                 |
-| ------------------------- | ------------------------------------------------------------------------ | ----------------------- |
-| `CLAUDE_GIT_NAME`         | Git commit name inside the container                                     | _(none)_                |
-| `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                    | _(none)_                |
-| `ANTHROPIC_API_KEY`       | API key for authentication                                               | _(none)_                |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                           | _(none)_                |
-| `CLAUDE_DATA_DIR`         | Custom `.claude` data directory (config, sessions, auth, plugins)        | `~/.claude`             |
-| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                 | `~/.ssh/claude-code`    |
-| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper script (install-time only)           | `/usr/local/bin`        |
-| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                   | `claude`                |
-| `CLAUDE_ENV_*`            | Forward custom env vars to the container (prefix is stripped)            | _(none)_                |
-| `CLAUDE_MOUNT_*`          | Mount extra volumes (path alone = same path in container, or `src:dest`) | _(none)_                |
-| `DEBUG`                   | Enable debug logging with timestamps in wrapper and entrypoint           | _(none)_                |
+| Variable                  | What it does                                                             | Default              |
+| ------------------------- | ------------------------------------------------------------------------ | -------------------- |
+| `CLAUDE_GIT_NAME`         | Git commit name inside the container                                     | _(none)_             |
+| `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                    | _(none)_             |
+| `ANTHROPIC_API_KEY`       | API key for authentication                                               | _(none)_             |
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                           | _(none)_             |
+| `CLAUDE_DATA_DIR`         | Custom `.claude` data directory (config, sessions, auth, plugins)        | `~/.claude`          |
+| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                 | `~/.ssh/claude-code` |
+| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper script (install-time only)           | `/usr/local/bin`     |
+| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                   | `claude`             |
+| `CLAUDE_ENV_*`            | Forward custom env vars to the container (prefix is stripped)            | _(none)_             |
+| `CLAUDE_MOUNT_*`          | Mount extra volumes (path alone = same path in container, or `src:dest`) | _(none)_             |
+| `DEBUG`                   | Enable debug logging with timestamps in wrapper and entrypoint           | _(none)_             |
 
 ### API mode vars
 
 Set these directly on the container (e.g. in docker-compose). Not used by the wrapper script.
 
-| Variable                         | What it does                                                                  | Default  |
-| -------------------------------- | ----------------------------------------------------------------------------- | -------- |
-| `CLAUDE_MODE_API`                | Set to `1` to run as HTTP API server instead of interactive/programmatic      | _(none)_ |
-| `CLAUDE_MODE_API_PORT`           | Port for the API server                                                       | `8080`   |
-| `CLAUDE_MODE_API_TOKEN`          | Bearer token to require for API requests (optional)                           | _(none)_ |
-| `CLAUDE_MODE_API_ROOT_WORKSPACE` | Root workspace — all request workspaces are joined under this path (required) | _(none)_ |
+| Variable                | What it does                                                             | Default  |
+| ----------------------- | ------------------------------------------------------------------------ | -------- |
+| `CLAUDE_MODE_API`       | Set to `1` to run as HTTP API server instead of interactive/programmatic | _(none)_ |
+| `CLAUDE_MODE_API_PORT`  | Port for the API server                                                  | `8080`   |
+| `CLAUDE_MODE_API_TOKEN` | Bearer token to require for API requests (optional)                      | _(none)_ |
 
 To set wrapper vars, export them on your host:
 
@@ -481,7 +480,6 @@ services:
     environment:
       - CLAUDE_MODE_API=1
       - CLAUDE_MODE_API_TOKEN=your-secret-token
-      - CLAUDE_MODE_API_ROOT_WORKSPACE=/workspaces
       - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
     volumes:
       - ~/.claude:/home/claude/.claude
@@ -500,15 +498,15 @@ curl -X POST http://localhost:8080/run \
 
 Request body:
 
-| Field                  | Type   | Description                                                                                                    | Default         |
-| ---------------------- | ------ | -------------------------------------------------------------------------------------------------------------- | --------------- |
-| `prompt`               | string | The prompt to send                                                                                             | required        |
-| `workspace`            | string | Subpath joined under `CLAUDE_MODE_API_ROOT_WORKSPACE` (e.g. `myproject` or `/foo/bar` both resolve under root) | root            |
-| `model`                | string | Model to use (same aliases as CLI)                                                                             | account default |
-| `system_prompt`        | string | Replace the default system prompt entirely                                                                     | _(none)_        |
-| `append_system_prompt` | string | Append to the default system prompt                                                                            | _(none)_        |
-| `json_schema`          | string | JSON Schema for structured output (result in `structured_output` field)                                        | _(none)_        |
-| `effort`               | string | Reasoning effort level (`low`, `medium`, `high`, `max`)                                                        | _(none)_        |
+| Field                  | Type   | Description                                                              | Default         |
+| ---------------------- | ------ | ------------------------------------------------------------------------ | --------------- |
+| `prompt`               | string | The prompt to send                                                       | required        |
+| `workspace`            | string | Subpath under `/workspaces` (e.g. `myproject` → `/workspaces/myproject`) | `/workspaces`   |
+| `model`                | string | Model to use (same aliases as CLI)                                       | account default |
+| `system_prompt`        | string | Replace the default system prompt entirely                               | _(none)_        |
+| `append_system_prompt` | string | Append to the default system prompt                                      | _(none)_        |
+| `json_schema`          | string | JSON Schema for structured output (result in `structured_output` field)  | _(none)_        |
+| `effort`               | string | Reasoning effort level (`low`, `medium`, `high`, `max`)                  | _(none)_        |
 
 Response is always `application/json` — same format as `--output-format json`.
 
@@ -546,7 +544,7 @@ curl -X DELETE "http://localhost:8080/files/myproject/src/old.py" \
   -H "Authorization: Bearer your-secret-token"
 ```
 
-All paths are relative to `CLAUDE_MODE_API_ROOT_WORKSPACE`. Path traversal outside root is blocked.
+All paths are relative to `/workspaces`. Path traversal outside root is blocked.
 
 **`GET /health`** — health check (no auth required):
 
