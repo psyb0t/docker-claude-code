@@ -32,8 +32,10 @@ else
 	ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
 fi
 
-echo "📦 Pulling latest Claude Code image..."
-docker pull psyb0t/claude-code:latest
+CLAUDE_TAG="latest"
+[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_TAG="minimal"
+echo "📦 Pulling Claude Code image (tag: $CLAUDE_TAG)..."
+docker pull "psyb0t/claude-code:$CLAUDE_TAG"
 
 echo "📝 Creating $BIN_NAME command script..."
 sudo tee "$BIN_PATH" <<'EOF' >/dev/null
@@ -234,6 +236,9 @@ else
     docker run -it --name "$container_name" "${DOCKER_ARGS[@]}" psyb0t/claude-code:latest
 fi
 EOF
+
+# inject the image tag into the wrapper (heredoc is single-quoted so can't expand)
+sudo sed -i "s|psyb0t/claude-code:latest|psyb0t/claude-code:$CLAUDE_TAG|g" "$BIN_PATH"
 
 echo "🔧 Making $BIN_NAME command executable..."
 sudo chmod +x "$BIN_PATH"

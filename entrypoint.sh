@@ -48,11 +48,21 @@ dbg "WORKSPACE_DIR=$WORKSPACE_DIR"
 
 # create CLAUDE.md if it doesn't exist in workspace
 if [ ! -f "$WORKSPACE_DIR/CLAUDE.md" ]; then
-	dbg "creating CLAUDE.md in workspace"
-	cat >"$WORKSPACE_DIR/CLAUDE.md" <<'CLAUDEMD'
+	dbg "creating CLAUDE.md in workspace (variant: ${CLAUDE_IMAGE_VARIANT:-full})"
+	{
+		cat <<'CLAUDEMD_HEADER'
 # Available Tools in This Container
 
 You are running in a Docker container with full sudo access. Here's what you have:
+
+## Pre-installed
+- **Node.js LTS** - with npm
+- **Docker CE** with Docker Compose
+- git, curl, wget, jq
+CLAUDEMD_HEADER
+
+		if [ "${CLAUDE_IMAGE_VARIANT:-full}" = "full" ]; then
+			cat <<'CLAUDEMD_FULL'
 
 ## Languages & Runtimes
 - **Go 1.25.5** - /usr/local/go/bin/go
@@ -127,12 +137,21 @@ You are running in a Docker container with full sudo access. Here's what you hav
 - valgrind - memory debugging
 - gdb - debugger
 - strace, ltrace - tracing
+CLAUDEMD_FULL
+		else
+			cat <<'CLAUDEMD_MINIMAL'
+
+## Minimal Image
+This is the minimal variant. Only basic tools are pre-installed (git, curl, wget, jq, Node.js, Docker).
+You have passwordless sudo access — install whatever you need with apt-get, pip, npm, go install, etc.
+CLAUDEMD_MINIMAL
+		fi
+
+		cat <<'CLAUDEMD_NOTES'
 
 ## Notes
 - You have passwordless sudo access
 - Docker socket may be mounted for docker-in-docker. The workspace is mounted at the exact same path as on the host, so when running docker commands with volume mounts, use the workspace path as the base (e.g. -v "$PWD/data:/data" will resolve correctly on the host)
-- pyenv at /usr/local/pyenv
-- Go tools at /usr/local/bin
 - claude CLI at ~/.claude (native install, can self-update)
 - ~/.claude/bin is in PATH — custom scripts placed here by the user are available to you
 - ~/.claude/init.d/*.sh scripts run once on first container create (not on subsequent starts)
@@ -140,7 +159,8 @@ You are running in a Docker container with full sudo access. Here's what you hav
 
 ## IMPORTANT
 If you need to overwrite or restructure this CLAUDE.md file for your project, FIRST save the container environment notes above to your memory or to a separate file (e.g. ~/.claude/CONTAINER.md) so you don't lose the container-specific information. These notes are auto-generated only on first run and won't be recreated if the file already exists.
-CLAUDEMD
+CLAUDEMD_NOTES
+	} > "$WORKSPACE_DIR/CLAUDE.md"
 	chown claude:claude "$WORKSPACE_DIR/CLAUDE.md"
 fi
 

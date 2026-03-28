@@ -1,19 +1,77 @@
-FROM ubuntu:22.04
+FROM ubuntu:22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # core essentials
 RUN apt-get update && apt-get install -y \
     git curl wget gnupg ca-certificates sudo apt-transport-https \
-    software-properties-common lsb-release \
+    software-properties-common lsb-release jq \
     && rm -rf /var/lib/apt/lists/*
+
+# node.js (needed for claude CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
+
+# docker (needed for docker-in-docker)
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
+    rm -rf /var/lib/apt/lists/*
+
+# create 'claude' user with sudo and docker access
+RUN useradd -u 1000 -ms /bin/bash claude && \
+    usermod -aG sudo claude && \
+    usermod -aG docker claude && \
+    mkdir -p /home/claude/.ssh && \
+    ssh-keyscan github.com gitlab.com bitbucket.org >> /home/claude/.ssh/known_hosts 2>/dev/null && \
+    chown -R claude:claude /home/claude
+
+# passwordless sudo
+COPY <<EOF /etc/sudoers.d/claude-nopass
+claude ALL=(ALL) NOPASSWD:ALL
+EOF
+RUN chmod 440 /etc/sudoers.d/claude-nopass
+
+# claude CLI native install (can self-update)
+USER claude
+ARG CLAUDE_VERSION=2.1.62
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION && \
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile && \
+    ~/.local/bin/claude install --yes 2>/dev/null || true
+ENV PATH="/home/claude/.local/bin:$PATH"
+ENV DISABLE_AUTOUPDATER=1
+
+# back to root for entrypoint
+USER root
+
+# copy default claude config to /claude for entrypoint to use as template
+RUN mkdir -p /claude && \
+    cp /home/claude/.claude.json /claude/.claude.json
+
+# workspace
+WORKDIR /workspace
+
+# entrypoint
+COPY entrypoint.sh /home/claude/entrypoint.sh
+RUN chmod +x /home/claude/entrypoint.sh
+
+ENTRYPOINT ["/home/claude/entrypoint.sh"]
+
+# ── minimal ────────────────────────────────────────────────────────────────────
+FROM base AS minimal
+ENV CLAUDE_IMAGE_VARIANT=minimal
+
+# ── full ───────────────────────────────────────────────────────────────────────
+FROM base AS full
+ENV CLAUDE_IMAGE_VARIANT=full
 
 # build tools
 RUN apt-get update && apt-get install -y \
     build-essential make cmake pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# python base (system python for bootstrapping)
+# python base
 RUN apt-get update && apt-get install -y \
     python3 python3-pip python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
@@ -35,7 +93,7 @@ RUN apt-get update && apt-get install -y \
 
 # cli tools
 RUN apt-get update && apt-get install -y \
-    jq tree fd-find ripgrep bat exa silversearcher-ag \
+    tree fd-find ripgrep bat exa silversearcher-ag \
     shellcheck shfmt httpie gh \
     && rm -rf /var/lib/apt/lists/*
 
@@ -84,9 +142,11 @@ RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | gpg --d
 # helm
 RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
+# node.js tools (global)
+RUN npm install -g eslint prettier typescript ts-node @typescript-eslint/parser @typescript-eslint/eslint-plugin
+RUN npm install -g nodemon pm2 yarn pnpm
+RUN npm install -g create-react-app @vue/cli @angular/cli express-generator
+RUN npm install -g newman http-server serve lighthouse @storybook/cli
 
 # pyenv + python 3.12.11 (system-wide)
 ENV PYENV_ROOT="/usr/local/pyenv"
@@ -109,55 +169,3 @@ RUN pip install --no-cache-dir requests beautifulsoup4 lxml pyyaml toml
 
 # python package managers
 RUN pip install --no-cache-dir pipenv poetry
-
-# docker
-RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
-    rm -rf /var/lib/apt/lists/*
-
-# node.js tools (global, these don't need auto-update)
-RUN npm install -g eslint prettier typescript ts-node @typescript-eslint/parser @typescript-eslint/eslint-plugin
-RUN npm install -g nodemon pm2 yarn pnpm
-RUN npm install -g create-react-app @vue/cli @angular/cli express-generator
-RUN npm install -g newman http-server serve lighthouse @storybook/cli
-
-# create 'claude' user with sudo and docker access
-RUN useradd -u 1000 -ms /bin/bash claude && \
-    usermod -aG sudo claude && \
-    usermod -aG docker claude && \
-    mkdir -p /home/claude/.ssh && \
-    ssh-keyscan github.com gitlab.com bitbucket.org >> /home/claude/.ssh/known_hosts 2>/dev/null && \
-    chown -R claude:claude /home/claude
-
-# passwordless sudo
-COPY <<EOF /etc/sudoers.d/claude-nopass
-claude ALL=(ALL) NOPASSWD:ALL
-EOF
-RUN chmod 440 /etc/sudoers.d/claude-nopass
-
-# claude CLI native install (can self-update)
-USER claude
-ARG CLAUDE_VERSION=2.1.62
-RUN curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_VERSION && \
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile && \
-    ~/.local/bin/claude install --yes 2>/dev/null || true
-ENV PATH="/home/claude/.local/bin:$PATH"
-ENV DISABLE_AUTOUPDATER=1
-
-# back to root for entrypoint
-USER root
-
-# copy default claude config to /claude for entrypoint to use as template
-RUN mkdir -p /claude && \
-    cp /home/claude/.claude.json /claude/.claude.json
-
-# workspace
-WORKDIR /workspace
-
-# entrypoint
-COPY entrypoint.sh /home/claude/entrypoint.sh
-RUN chmod +x /home/claude/entrypoint.sh
-
-ENTRYPOINT ["/home/claude/entrypoint.sh"]

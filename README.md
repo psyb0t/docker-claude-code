@@ -8,9 +8,49 @@ This container gives you the [Claude Code](https://claude.com/product/claude-cod
 Because installing things natively is for suckers.
 This image is for devs who live dangerously, commit anonymously, and like their AI tools in containers.
 
-## 🎞️ What's Inside?
+## 🎞️ Image Variants
 
-- Ubuntu 22.04 (stable and unfeeling)
+Two image variants are available:
+
+### `latest` (full) — batteries included
+
+Everything pre-installed. Big image, zero setup time.
+
+```bash
+# default — full image
+curl -fsSL .../install.sh | bash
+```
+
+### `minimal` — lean and mean
+
+Just the bare essentials to run claude (Ubuntu, git, curl, wget, jq, Node.js, Docker). Claude has passwordless sudo so it can install whatever it needs on the fly. Smaller image, faster pull, but first-run setup takes longer.
+
+```bash
+# install with minimal image
+CLAUDE_MINIMAL=1 curl -fsSL .../install.sh | bash
+```
+
+Use `~/.claude/init.d/*.sh` to pre-install your tools on first container create so you don't have to wait for claude to figure it out.
+
+### What's in each variant?
+
+|                                       | `latest` (full) | `minimal` |
+| ------------------------------------- | --------------- | --------- |
+| Ubuntu 22.04                          | yes             | yes       |
+| git, curl, wget, jq                   | yes             | yes       |
+| Node.js LTS + npm                     | yes             | yes       |
+| Docker CE + Compose                   | yes             | yes       |
+| Claude Code CLI                       | yes             | yes       |
+| Go 1.25.5 + tools                     | yes             | -         |
+| Python 3.12.11 + tools                | yes             | -         |
+| Node.js dev tools                     | yes             | -         |
+| C/C++ tools                           | yes             | -         |
+| DevOps (terraform, kubectl, helm, gh) | yes             | -         |
+| Database clients                      | yes             | -         |
+| Shell utilities (ripgrep, bat, etc.)  | yes             | -         |
+
+## 🎞️ What's Inside? (full image)
+
 - Go 1.25.5 with full toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
 - Latest Node.js with comprehensive dev tools (eslint, prettier, typescript, ts-node, yarn, pnpm, nodemon, pm2, framework CLIs, newman, http-server, serve, lighthouse, storybook)
 - Python 3.12.11 via pyenv with linters, formatters, testing (flake8, black, isort, autoflake, pyright, mypy, vulture, pytest, poetry, pipenv)
@@ -80,19 +120,19 @@ Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub
 
 ## 🔐 ENV Vars
 
-| Variable | What it does | Default |
-| -------- | ------------ | ------- |
-| `CLAUDE_GIT_NAME` | Git commit name inside the container | *(none)* |
-| `CLAUDE_GIT_EMAIL` | Git commit email inside the container | *(none)* |
-| `ANTHROPIC_API_KEY` | API key for authentication | *(none)* |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication | *(none)* |
-| `CLAUDE_DATA_DIR` | Custom `.claude` data directory (config, sessions, auth, plugins) | `~/.claude` |
-| `CLAUDE_SSH_DIR` | Custom SSH key directory | `~/.ssh/claude-code` |
-| `CLAUDE_INSTALL_DIR` | Custom install path for the wrapper script | `/usr/local/bin` |
-| `CLAUDE_BIN_NAME` | Custom binary name (alternative to passing as argument) | `claude` |
-| `CLAUDE_ENV_*` | Forward custom env vars to the container (prefix is stripped) | *(none)* |
-| `CLAUDE_MOUNT_*` | Mount extra volumes (path alone = same path in container, or `src:dest`) | *(none)* |
-| `DEBUG` | Enable debug logging with timestamps in wrapper and entrypoint | *(none)* |
+| Variable                  | What it does                                                             | Default              |
+| ------------------------- | ------------------------------------------------------------------------ | -------------------- |
+| `CLAUDE_GIT_NAME`         | Git commit name inside the container                                     | _(none)_             |
+| `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                    | _(none)_             |
+| `ANTHROPIC_API_KEY`       | API key for authentication                                               | _(none)_             |
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                           | _(none)_             |
+| `CLAUDE_DATA_DIR`         | Custom `.claude` data directory (config, sessions, auth, plugins)        | `~/.claude`          |
+| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                 | `~/.ssh/claude-code` |
+| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper script                               | `/usr/local/bin`     |
+| `CLAUDE_BIN_NAME`         | Custom binary name (alternative to passing as argument)                  | `claude`             |
+| `CLAUDE_ENV_*`            | Forward custom env vars to the container (prefix is stripped)            | _(none)_             |
+| `CLAUDE_MOUNT_*`          | Mount extra volumes (path alone = same path in container, or `src:dest`) | _(none)_             |
+| `DEBUG`                   | Enable debug logging with timestamps in wrapper and entrypoint           | _(none)_             |
 
 To set these, export them on your host machine (e.g. in your `~/.bashrc` or `~/.zshrc`):
 
@@ -201,27 +241,27 @@ Uses its own `_prog` container (no TTY — works from scripts, cron, other tools
 
 Use `--model` to pick which Claude model to use:
 
-| Alias | Model | Best for |
-|-------|-------|----------|
-| `opus` | Claude Opus 4.6 | Complex reasoning, architecture, hard debugging |
-| `sonnet` | Claude Sonnet 4.6 | Daily coding, balanced speed/intelligence |
-| `haiku` | Claude Haiku 4.5 | Quick lookups, simple tasks, high volume |
-| `opusplan` | Opus (planning) + Sonnet (execution) | Best of both worlds |
-| `sonnet[1m]` | Sonnet with 1M context | Long sessions, huge codebases |
+| Alias        | Model                                | Best for                                        |
+| ------------ | ------------------------------------ | ----------------------------------------------- |
+| `opus`       | Claude Opus 4.6                      | Complex reasoning, architecture, hard debugging |
+| `sonnet`     | Claude Sonnet 4.6                    | Daily coding, balanced speed/intelligence       |
+| `haiku`      | Claude Haiku 4.5                     | Quick lookups, simple tasks, high volume        |
+| `opusplan`   | Opus (planning) + Sonnet (execution) | Best of both worlds                             |
+| `sonnet[1m]` | Sonnet with 1M context               | Long sessions, huge codebases                   |
 
 You can also use full model names to pin specific versions:
 
-| Full model name | Notes |
-|----------------|-------|
-| `claude-opus-4-6` | Current Opus |
-| `claude-sonnet-4-6` | Current Sonnet |
-| `claude-haiku-4-5-20251001` | Current Haiku |
-| `claude-opus-4-5-20251101` | Legacy |
-| `claude-sonnet-4-5-20250929` | Legacy |
-| `claude-opus-4-1-20250805` | Legacy |
-| `claude-opus-4-20250514` | Legacy (alias: `claude-opus-4-0`) |
-| `claude-sonnet-4-20250514` | Legacy (alias: `claude-sonnet-4-0`) |
-| `claude-3-haiku-20240307` | Deprecated, retiring April 2026 |
+| Full model name              | Notes                               |
+| ---------------------------- | ----------------------------------- |
+| `claude-opus-4-6`            | Current Opus                        |
+| `claude-sonnet-4-6`          | Current Sonnet                      |
+| `claude-haiku-4-5-20251001`  | Current Haiku                       |
+| `claude-opus-4-5-20251101`   | Legacy                              |
+| `claude-sonnet-4-5-20250929` | Legacy                              |
+| `claude-opus-4-1-20250805`   | Legacy                              |
+| `claude-opus-4-20250514`     | Legacy (alias: `claude-opus-4-0`)   |
+| `claude-sonnet-4-20250514`   | Legacy (alias: `claude-sonnet-4-0`) |
+| `claude-3-haiku-20240307`    | Deprecated, retiring April 2026     |
 
 ```bash
 claude "do stuff" --model opus                        # latest opus
@@ -236,6 +276,7 @@ If not specified, the model defaults based on your account type (Max/Team Premiu
 **`text`** (default) — plain text response.
 
 **`json`** — single JSON object with the result:
+
 ```json
 {
   "type": "result",
@@ -247,41 +288,138 @@ If not specified, the model defaults based on your account type (Max/Team Premiu
   "duration_api_ms": 3069,
   "total_cost_usd": 0.156,
   "session_id": "...",
-  "usage": { "input_tokens": 3, "output_tokens": 4, "..." : "..." },
-  "modelUsage": { "..." : "..." }
+  "usage": { "input_tokens": 3, "output_tokens": 4, "...": "..." },
+  "modelUsage": { "...": "..." }
 }
 ```
 
 **`stream-json`** — newline-delimited JSON (NDJSON), one event per line. Each event has a `type` field. Here's what a multi-step run looks like (e.g. `claude "install cowsay, run it, fetch a URL" --output-format stream-json`):
 
 **`system`** — first event, session init with tools, model, version, permissions:
+
 ```json
 {"type":"system","subtype":"init","cwd":"/your/project","session_id":"...","tools":["Bash","Read","Write","Glob","Grep","..."],"model":"claude-opus-4-6","permissionMode":"bypassPermissions","claude_code_version":"2.1.62","agents":["general-purpose","Explore","Plan","..."],"skills":["keybindings-help","debug"],"plugins":[...],"fast_mode_state":"off"}
 ```
 
 **`assistant`** — Claude's responses. Content is an array of text and/or tool_use blocks:
+
 ```json
-{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"I'll install cowsay first."}],"usage":{"input_tokens":3,"output_tokens":2,"cache_read_input_tokens":22077,"...":"..."}},"session_id":"..."}
+{
+  "type": "assistant",
+  "message": {
+    "model": "claude-opus-4-6",
+    "role": "assistant",
+    "content": [{ "type": "text", "text": "I'll install cowsay first." }],
+    "usage": {
+      "input_tokens": 3,
+      "output_tokens": 2,
+      "cache_read_input_tokens": 22077,
+      "...": "..."
+    }
+  },
+  "session_id": "..."
+}
 ```
 
 When Claude calls a tool, content contains a `tool_use` block:
+
 ```json
-{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","id":"toolu_abc123","name":"Bash","input":{"command":"sudo apt-get install -y cowsay","description":"Install cowsay"}}],"usage":{"input_tokens":1,"output_tokens":26,"...":"..."}},"session_id":"..."}
+{
+  "type": "assistant",
+  "message": {
+    "model": "claude-opus-4-6",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_abc123",
+        "name": "Bash",
+        "input": {
+          "command": "sudo apt-get install -y cowsay",
+          "description": "Install cowsay"
+        }
+      }
+    ],
+    "usage": { "input_tokens": 1, "output_tokens": 26, "...": "..." }
+  },
+  "session_id": "..."
+}
 ```
 
 **`user`** — tool execution results (stdout, stderr, error status):
+
 ```json
-{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_abc123","type":"tool_result","content":"Setting up cowsay (3.03+dfsg2-8) ...","is_error":false}]},"session_id":"...","tool_use_result":{"stdout":"Setting up cowsay (3.03+dfsg2-8) ...","stderr":"","interrupted":false}}
+{
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": [
+      {
+        "tool_use_id": "toolu_abc123",
+        "type": "tool_result",
+        "content": "Setting up cowsay (3.03+dfsg2-8) ...",
+        "is_error": false
+      }
+    ]
+  },
+  "session_id": "...",
+  "tool_use_result": {
+    "stdout": "Setting up cowsay (3.03+dfsg2-8) ...",
+    "stderr": "",
+    "interrupted": false
+  }
+}
 ```
 
 **`rate_limit_event`** — rate limit status check between turns:
+
 ```json
-{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1772204400,"rateLimitType":"five_hour","overageStatus":"allowed","isUsingOverage":false},"session_id":"..."}
+{
+  "type": "rate_limit_event",
+  "rate_limit_info": {
+    "status": "allowed",
+    "resetsAt": 1772204400,
+    "rateLimitType": "five_hour",
+    "overageStatus": "allowed",
+    "isUsingOverage": false
+  },
+  "session_id": "..."
+}
 ```
 
 **`result`** — final event with summary, cost, usage breakdown per model:
+
 ```json
-{"type":"result","subtype":"success","is_error":false,"num_turns":10,"duration_ms":60360,"duration_api_ms":46285,"total_cost_usd":0.203,"result":"Here's what I did:\n1. Installed cowsay...\n2. ...","session_id":"...","usage":{"input_tokens":12,"output_tokens":1669,"cache_read_input_tokens":255610,"cache_creation_input_tokens":5037},"modelUsage":{"claude-opus-4-6":{"inputTokens":12,"outputTokens":1669,"cacheReadInputTokens":255610,"costUSD":0.201},"claude-haiku-4-5-20251001":{"inputTokens":1656,"outputTokens":128,"costUSD":0.002}}}
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 10,
+  "duration_ms": 60360,
+  "duration_api_ms": 46285,
+  "total_cost_usd": 0.203,
+  "result": "Here's what I did:\n1. Installed cowsay...\n2. ...",
+  "session_id": "...",
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 1669,
+    "cache_read_input_tokens": 255610,
+    "cache_creation_input_tokens": 5037
+  },
+  "modelUsage": {
+    "claude-opus-4-6": {
+      "inputTokens": 12,
+      "outputTokens": 1669,
+      "cacheReadInputTokens": 255610,
+      "costUSD": 0.201
+    },
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 1656,
+      "outputTokens": 128,
+      "costUSD": 0.002
+    }
+  }
+}
 ```
 
 A typical multi-step run produces: `system` → (`assistant` → `user`)× repeated per tool call → `rate_limit_event` between turns → final `assistant` text → `result`.
