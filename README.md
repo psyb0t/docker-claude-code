@@ -127,7 +127,7 @@ Then add the public key (`$HOME/.ssh/claude-code/id_ed25519.pub`) to your GitHub
 ```bash
 docker pull psyb0t/claude-code:latest
 # or for minimal:
-docker pull psyb0t/claude-code:minimal
+docker pull psyb0t/claude-code:latest-minimal
 ```
 
 From here, check `install.sh` to see how the wrapper script works if you want to wire it up yourself.

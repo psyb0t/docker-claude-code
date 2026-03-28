@@ -33,7 +33,7 @@ else
 fi
 
 CLAUDE_TAG="latest"
-[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_TAG="minimal"
+[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_TAG="latest-minimal"
 echo "📦 Pulling Claude Code image (tag: $CLAUDE_TAG)..."
 docker pull "psyb0t/claude-code:$CLAUDE_TAG"
 

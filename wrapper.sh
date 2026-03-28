@@ -3,7 +3,7 @@
 dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
 
 CLAUDE_IMAGE="psyb0t/claude-code:latest"
-[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_IMAGE="psyb0t/claude-code:minimal"
+[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_IMAGE="psyb0t/claude-code:latest-minimal"
 
 # Git identity - use env var if set, otherwise empty
 CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
