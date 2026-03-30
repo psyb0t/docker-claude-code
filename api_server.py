@@ -27,6 +27,11 @@ signal.signal(signal.SIGINT, _shutdown)
 
 ROOT_WORKSPACE = "/workspaces"
 CLAUDE_MD_TEMPLATE = "/home/claude/.claude/CLAUDE.md.template"
+SYSTEM_HINT_FILE = "/home/claude/.claude/system-hint.txt"
+SYSTEM_HINT = ""
+if os.path.isfile(SYSTEM_HINT_FILE):
+    with open(SYSTEM_HINT_FILE) as _f:
+        SYSTEM_HINT = _f.read().strip()
 
 API_TOKEN = os.environ.get("CLAUDE_MODE_API_TOKEN", "")
 PORT = int(os.environ.get("CLAUDE_MODE_API_PORT", "8080"))
@@ -81,8 +86,14 @@ def _build_args(req: RunRequest, with_continue: bool = False):
         args += ["--model", req.model]
     if req.system_prompt:
         args += ["--system-prompt", req.system_prompt]
+    # always append system hint + any user append
+    append_parts = []
+    if SYSTEM_HINT:
+        append_parts.append(SYSTEM_HINT)
     if req.append_system_prompt:
-        args += ["--append-system-prompt", req.append_system_prompt]
+        append_parts.append(req.append_system_prompt)
+    if append_parts:
+        args += ["--append-system-prompt", "\n".join(append_parts)]
     if req.json_schema:
         args += ["--json-schema", req.json_schema]
     if req.effort:

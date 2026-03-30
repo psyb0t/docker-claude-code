@@ -28,6 +28,11 @@ CONFIG_PATH = os.environ.get(
 )
 ROOT_WORKSPACE = "/workspaces"
 CLAUDE_MD_TEMPLATE = "/home/claude/.claude/CLAUDE.md.template"
+SYSTEM_HINT_FILE = "/home/claude/.claude/system-hint.txt"
+SYSTEM_HINT = ""
+if os.path.isfile(SYSTEM_HINT_FILE):
+    with open(SYSTEM_HINT_FILE) as _f:
+        SYSTEM_HINT = _f.read().strip()
 
 busy_chats: dict[int, Optional[asyncio.subprocess.Process]] = {}
 config: dict = {}
@@ -108,8 +113,11 @@ def _build_claude_args(prompt: str, chat_cfg: dict) -> list[str]:
         args += ["--model", chat_cfg["model"]]
     if chat_cfg.get("system_prompt"):
         args += ["--system-prompt", chat_cfg["system_prompt"]]
-    # always append the telegram hint + any user append_system_prompt
-    append_parts = [TELEGRAM_SYSTEM_HINT]
+    # always append: system hint + telegram hint + user's append
+    append_parts = []
+    if SYSTEM_HINT:
+        append_parts.append(SYSTEM_HINT)
+    append_parts.append(TELEGRAM_SYSTEM_HINT)
     if chat_cfg.get("append_system_prompt"):
         append_parts.append(chat_cfg["append_system_prompt"])
     args += ["--append-system-prompt", "\n".join(append_parts)]

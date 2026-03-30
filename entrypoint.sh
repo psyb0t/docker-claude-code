@@ -166,6 +166,16 @@ CLAUDEMD_NOTES
 	dbg "CLAUDE.md template created"
 fi
 
+# generate system hint (appended to every claude invocation via --append-system-prompt)
+SYSTEM_HINT_FILE="/home/claude/.claude/system-hint.txt"
+if [ ! -f "$SYSTEM_HINT_FILE" ]; then
+	cat > "$SYSTEM_HINT_FILE" <<SYSHINT
+You are running in a Docker container (${CLAUDE_IMAGE_VARIANT:-full} image) with passwordless sudo access. ~/.claude/bin is in PATH — custom user scripts may be available there. Docker socket may be mounted for docker-in-docker. The workspace path inside the container matches the host path so docker volume mounts from within this container resolve correctly on the host.
+SYSHINT
+	chown claude:claude "$SYSTEM_HINT_FILE"
+	dbg "system hint created"
+fi
+
 # copy template to workspace if CLAUDE.md doesn't exist there
 if [ ! -f "$WORKSPACE_DIR/CLAUDE.md" ]; then
 	cp "$CLAUDE_MD_TEMPLATE" "$WORKSPACE_DIR/CLAUDE.md"
@@ -262,6 +272,13 @@ fi
 ARGS_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-args"
 UPDATE_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-update"
 
+# build system hint flag for all claude invocations
+SYSTEM_HINT_FLAG=""
+if [ -f "$SYSTEM_HINT_FILE" ]; then
+	HINT_CONTENT=$(cat "$SYSTEM_HINT_FILE")
+	SYSTEM_HINT_FLAG="--append-system-prompt $(printf '%q' "$HINT_CONTENT")"
+fi
+
 # detect --no-continue and --resume in args (affects whether we auto-add --continue)
 _skip_auto_continue() {
 	for a in "$@"; do
@@ -291,19 +308,19 @@ elif [ -f "$ARGS_FILE" ]; then
 	# check if --no-continue or --resume is in the escaped args
 	if echo "$ESCAPED_ARGS" | grep -qE '\-\-no-continue|\-\-resume'; then
 		ESCAPED_ARGS="${ESCAPED_ARGS//--no-continue/}"
-		CMD="$CMD && exec claude --dangerously-skip-permissions $ESCAPED_ARGS"
+		CMD="$CMD && exec claude --dangerously-skip-permissions $SYSTEM_HINT_FLAG $ESCAPED_ARGS"
 	else
-		CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
+		CMD="$CMD && exec claude --dangerously-skip-permissions --continue $SYSTEM_HINT_FLAG $ESCAPED_ARGS"
 	fi
 elif [ $# -gt 0 ]; then
 	if _skip_auto_continue "$@"; then
 		ESCAPED_ARGS=$(_strip_no_continue "$@")
 		dbg "mode: programmatic (first run, no auto-continue), args: $ESCAPED_ARGS"
-		CMD="$CMD && exec claude --dangerously-skip-permissions $ESCAPED_ARGS"
+		CMD="$CMD && exec claude --dangerously-skip-permissions $SYSTEM_HINT_FLAG $ESCAPED_ARGS"
 	else
 		ESCAPED_ARGS=$(printf '%q ' "$@")
 		dbg "mode: programmatic (first run), args: $ESCAPED_ARGS"
-		CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
+		CMD="$CMD && (claude --dangerously-skip-permissions --continue $SYSTEM_HINT_FLAG $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $SYSTEM_HINT_FLAG $ESCAPED_ARGS)"
 	fi
 else
 	dbg "mode: interactive"
@@ -312,7 +329,7 @@ else
 		dbg "running claude update"
 		CMD="$CMD && claude update"
 	fi
-	CMD="$CMD && (claude --dangerously-skip-permissions --continue || exec claude --dangerously-skip-permissions)"
+	CMD="$CMD && (claude --dangerously-skip-permissions --continue $SYSTEM_HINT_FLAG || exec claude --dangerously-skip-permissions $SYSTEM_HINT_FLAG)"
 fi
 
 
