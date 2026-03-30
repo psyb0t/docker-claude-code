@@ -268,8 +268,20 @@ async def _run_prompt(
         stdout, _ = await proc.communicate()
         output = stdout.decode().strip() if stdout else ""
 
+        # if cancelled, bail out
+        if chat_id not in busy_chats:
+            logger.info("chat %s cancelled, aborting", chat_id)
+            stop_typing.set()
+            await typing_task
+            return
+
         # fallback: if --continue failed with no output, retry without
         if proc.returncode != 0 and not output and chat_cfg.get("continue", True):
+            logger.info(
+                "chat %s --continue failed (exit=%s), retrying without",
+                chat_id,
+                proc.returncode,
+            )
             args_retry = [a for a in args if a != "--continue"]
             proc = await asyncio.create_subprocess_exec(
                 *args_retry,
@@ -281,6 +293,13 @@ async def _run_prompt(
             busy_chats[chat_id] = proc
             stdout, _ = await proc.communicate()
             output = stdout.decode().strip() if stdout else ""
+
+        # cancelled during retry
+        if chat_id not in busy_chats:
+            logger.info("chat %s cancelled during retry, aborting", chat_id)
+            stop_typing.set()
+            await typing_task
+            return
 
         if not output:
             output = f"claude exited with code {proc.returncode} and no output"
@@ -420,6 +439,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     proc.kill()
     await proc.wait()
     busy_chats.pop(chat.id, None)
+    logger.info("chat %s /cancel killed process", chat.id)
     await update.effective_message.reply_text("cancelled")
 
 
@@ -431,6 +451,7 @@ async def cmd_reload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     global config
     config = load_config()
+    logger.info("chat %s /reload config reloaded", chat.id)
     await update.effective_message.reply_text("config reloaded")
 
 
@@ -498,6 +519,7 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     rel_path = " ".join(context.args)
+    logger.info("chat %s /fetch %s", chat.id, rel_path)
     chat_cfg = get_chat_config(chat.id)
     workspace = _resolve_workspace(chat_cfg)
     full = os.path.realpath(os.path.join(workspace, rel_path))
