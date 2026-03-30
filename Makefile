@@ -1,30 +1,33 @@
 # Docker image configuration
 IMAGE_NAME := psyb0t/claude-code
 TAG := latest
-TEST_TAG := $(TAG)-test
 
-.PHONY: build build-test clean help
+.PHONY: build build-minimal build-all clean help
 
 # Default target
 all: build
 
-# Build the main image
+# Build the full image
 build:
-	docker build -t $(IMAGE_NAME):$(TAG) .
+	docker build --target full -t $(IMAGE_NAME):$(TAG) .
 
-# Build the test image with -test suffix
-build-test:
-	docker build -t $(IMAGE_NAME):$(TEST_TAG) .
+# Build the minimal image
+build-minimal:
+	docker build --target minimal -t $(IMAGE_NAME):$(TAG)-minimal .
+
+# Build both
+build-all: build build-minimal
 
 # Clean up images
 clean:
 	docker rmi $(IMAGE_NAME):$(TAG) || true
-	docker rmi $(IMAGE_NAME):$(TEST_TAG) || true
+	docker rmi $(IMAGE_NAME):$(TAG)-minimal || true
 
 # Show available targets
 help:
 	@echo "Available targets:"
-	@echo "  build      - Build the main Docker image"
-	@echo "  build-test - Build the test Docker image with -test suffix"
-	@echo "  clean      - Remove built images"
-	@echo "  help       - Show this help message"
+	@echo "  build          - Build the full Docker image"
+	@echo "  build-minimal  - Build the minimal Docker image"
+	@echo "  build-all      - Build both images"
+	@echo "  clean          - Remove built images"
+	@echo "  help           - Show this help message"

@@ -46,9 +46,10 @@ WORKSPACE_DIR="${CLAUDE_WORKSPACE:-/workspace}"
 
 dbg "WORKSPACE_DIR=$WORKSPACE_DIR"
 
-# create CLAUDE.md if it doesn't exist in workspace
-if [ ! -f "$WORKSPACE_DIR/CLAUDE.md" ]; then
-	dbg "creating CLAUDE.md in workspace (variant: ${CLAUDE_IMAGE_VARIANT:-full})"
+# generate CLAUDE.md template (baked per image variant, reusable across workspaces)
+CLAUDE_MD_TEMPLATE="/home/claude/.claude/CLAUDE.md.template"
+if [ ! -f "$CLAUDE_MD_TEMPLATE" ]; then
+	dbg "generating CLAUDE.md template (variant: ${CLAUDE_IMAGE_VARIANT:-full})"
 	{
 		cat <<'CLAUDEMD_HEADER'
 # Available Tools in This Container
@@ -160,8 +161,16 @@ CLAUDEMD_MINIMAL
 ## IMPORTANT
 If you need to overwrite or restructure this CLAUDE.md file for your project, FIRST save the container environment notes above to your memory or to a separate file (e.g. ~/.claude/CONTAINER.md) so you don't lose the container-specific information. These notes are auto-generated only on first run and won't be recreated if the file already exists.
 CLAUDEMD_NOTES
-	} > "$WORKSPACE_DIR/CLAUDE.md"
+	} > "$CLAUDE_MD_TEMPLATE"
+	chown claude:claude "$CLAUDE_MD_TEMPLATE"
+	dbg "CLAUDE.md template created"
+fi
+
+# copy template to workspace if CLAUDE.md doesn't exist there
+if [ ! -f "$WORKSPACE_DIR/CLAUDE.md" ]; then
+	cp "$CLAUDE_MD_TEMPLATE" "$WORKSPACE_DIR/CLAUDE.md"
 	chown claude:claude "$WORKSPACE_DIR/CLAUDE.md"
+	dbg "CLAUDE.md copied to $WORKSPACE_DIR"
 fi
 
 # ensure .claude.json has required native install properties

@@ -27,9 +27,20 @@ CONFIG_PATH = os.environ.get(
     "CLAUDE_TELEGRAM_CONFIG", "/home/claude/.claude/telegram.yml"
 )
 ROOT_WORKSPACE = "/workspaces"
+CLAUDE_MD_TEMPLATE = "/home/claude/.claude/CLAUDE.md.template"
 
 busy_chats: dict[int, Optional[asyncio.subprocess.Process]] = {}
 config: dict = {}
+
+
+def _ensure_workspace(path: str) -> None:
+    """Create workspace dir and seed CLAUDE.md from template if missing."""
+    os.makedirs(path, exist_ok=True)
+    claude_md = os.path.join(path, "CLAUDE.md")
+    if not os.path.isfile(claude_md) and os.path.isfile(CLAUDE_MD_TEMPLATE):
+        import shutil
+
+        shutil.copy2(CLAUDE_MD_TEMPLATE, claude_md)
 
 
 def load_config() -> dict:
@@ -236,7 +247,7 @@ async def _run_prompt(
         workspace,
         chat_cfg.get("model", "default"),
     )
-    os.makedirs(workspace, exist_ok=True)
+    _ensure_workspace(workspace)
 
     busy_chats[chat_id] = None
     stop_typing = asyncio.Event()
@@ -324,7 +335,7 @@ async def _handle_file_upload(
 
     chat_cfg = get_chat_config(chat.id)
     workspace = _resolve_workspace(chat_cfg)
-    os.makedirs(workspace, exist_ok=True)
+    _ensure_workspace(workspace)
 
     tg_file = await tg_file_obj.get_file()
     dest = os.path.join(workspace, file_name)
@@ -450,7 +461,7 @@ async def cmd_bash(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     command = msg.text.partition(" ")[2]
     chat_cfg = get_chat_config(chat.id)
     workspace = _resolve_workspace(chat_cfg)
-    os.makedirs(workspace, exist_ok=True)
+    _ensure_workspace(workspace)
     logger.info("chat %s /bash: %s", chat.id, command)
 
     proc = None

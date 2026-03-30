@@ -26,6 +26,7 @@ signal.signal(signal.SIGTERM, _shutdown)
 signal.signal(signal.SIGINT, _shutdown)
 
 ROOT_WORKSPACE = "/workspaces"
+CLAUDE_MD_TEMPLATE = "/home/claude/.claude/CLAUDE.md.template"
 
 API_TOKEN = os.environ.get("CLAUDE_MODE_API_TOKEN", "")
 PORT = int(os.environ.get("CLAUDE_MODE_API_PORT", "8080"))
@@ -158,6 +159,13 @@ async def run(req: RunRequest, authorization: Optional[str] = Header(None)):
 
     if not os.path.isdir(workspace):
         raise HTTPException(status_code=400, detail=f"workspace not found: {workspace}")
+
+    # seed CLAUDE.md from template if missing
+    claude_md = os.path.join(workspace, "CLAUDE.md")
+    if not os.path.isfile(claude_md) and os.path.isfile(CLAUDE_MD_TEMPLATE):
+        import shutil
+
+        shutil.copy2(CLAUDE_MD_TEMPLATE, claude_md)
 
     if workspace in busy_workspaces:
         raise HTTPException(status_code=409, detail="workspace busy, retry later")
