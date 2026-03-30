@@ -241,6 +241,25 @@ fi
 
 ARGS_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-args"
 UPDATE_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-update"
+
+# detect --no-continue and --resume in args (affects whether we auto-add --continue)
+_skip_auto_continue() {
+	for a in "$@"; do
+		case "$a" in
+			--no-continue|--resume|--resume=*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
+# strip --no-continue from args (not a real claude flag)
+_strip_no_continue() {
+	for a in "$@"; do
+		[ "$a" = "--no-continue" ] && continue
+		printf '%q ' "$a"
+	done
+}
+
 if [ "${1:-}" = "setup-token" ]; then
 	dbg "mode: setup-token"
 	CMD="$CMD && exec claude setup-token"
@@ -249,11 +268,23 @@ elif [ -f "$ARGS_FILE" ]; then
 	ESCAPED_ARGS=$(cat "$ARGS_FILE")
 	rm -f "$ARGS_FILE"
 	dbg "mode: programmatic (subsequent), args: $ESCAPED_ARGS"
-	CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
+	# check if --no-continue or --resume is in the escaped args
+	if echo "$ESCAPED_ARGS" | grep -qE '\-\-no-continue|\-\-resume'; then
+		ESCAPED_ARGS="${ESCAPED_ARGS//--no-continue/}"
+		CMD="$CMD && exec claude --dangerously-skip-permissions $ESCAPED_ARGS"
+	else
+		CMD="$CMD && exec claude --dangerously-skip-permissions --continue $ESCAPED_ARGS"
+	fi
 elif [ $# -gt 0 ]; then
-	ESCAPED_ARGS=$(printf '%q ' "$@")
-	dbg "mode: programmatic (first run), args: $ESCAPED_ARGS"
-	CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
+	if _skip_auto_continue "$@"; then
+		ESCAPED_ARGS=$(_strip_no_continue "$@")
+		dbg "mode: programmatic (first run, no auto-continue), args: $ESCAPED_ARGS"
+		CMD="$CMD && exec claude --dangerously-skip-permissions $ESCAPED_ARGS"
+	else
+		ESCAPED_ARGS=$(printf '%q ' "$@")
+		dbg "mode: programmatic (first run), args: $ESCAPED_ARGS"
+		CMD="$CMD && (claude --dangerously-skip-permissions --continue $ESCAPED_ARGS || exec claude --dangerously-skip-permissions $ESCAPED_ARGS)"
+	fi
 else
 	dbg "mode: interactive"
 	if [ -f "$UPDATE_FILE" ]; then

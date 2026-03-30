@@ -64,11 +64,15 @@ class RunRequest(BaseModel):
     append_system_prompt: Optional[str] = None
     json_schema: Optional[str] = None
     effort: Optional[str] = None
+    no_continue: bool = False
+    resume: Optional[str] = None
 
 
 def _build_args(req: RunRequest, with_continue: bool = False):
     args = ["claude", "--dangerously-skip-permissions"]
-    if with_continue:
+    if req.resume:
+        args += ["--resume", req.resume]
+    elif with_continue and not req.no_continue:
         args.append("--continue")
     args += ["-p", req.prompt, "--output-format", "json"]
     if req.model:
@@ -97,6 +101,21 @@ async def _stream(workspace: str, req: RunRequest):
     env = _build_env()
 
     try:
+        if req.no_continue or req.resume:
+            proc = await asyncio.create_subprocess_exec(
+                *_build_args(req, with_continue=False),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=workspace,
+                env=env,
+            )
+            busy_workspaces[workspace] = proc
+            if proc.stdout:
+                async for line in proc.stdout:
+                    yield line
+            await proc.wait()
+            return
+
         # try with --continue first, fall back without
         proc = await asyncio.create_subprocess_exec(
             *_build_args(req, with_continue=True),
@@ -169,7 +188,10 @@ async def get_files(
         entries = []
         for name in sorted(os.listdir(full)):
             entry_path = os.path.join(full, name)
-            entry: dict = {"name": name, "type": "dir" if os.path.isdir(entry_path) else "file"}
+            entry: dict = {
+                "name": name,
+                "type": "dir" if os.path.isdir(entry_path) else "file",
+            }
             if entry["type"] == "file":
                 entry["size"] = os.path.getsize(entry_path)
             entries.append(entry)

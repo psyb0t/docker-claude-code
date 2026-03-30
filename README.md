@@ -67,7 +67,7 @@ Use `~/.claude/init.d/*.sh` to pre-install your tools on first container create 
 - `git` + `curl` + `wget` + `httpie` + Claude Code
 - Auto-Git config based on env vars
 - Auto-generated `CLAUDE.md` in workspace (lists all available tools for Claude's awareness)
-- Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions --continue` (falls back to fresh session if no conversation to continue)
+- Startup script that configures git, updates claude, and runs with `--dangerously-skip-permissions --continue` (falls back to fresh session if no conversation to continue). Use `--no-continue` to force a fresh session, or `--resume <session_id>` to resume a specific conversation
 - Auto-updates claude on interactive startup (skip with `--no-update`), background auto-updater disabled
 - Workspace trust dialog is automatically pre-accepted (no annoying prompts)
 - Programmatic mode support — just pass a prompt and optional `--output-format` (`-p` is added automatically)
@@ -275,9 +275,15 @@ claude "extract the author and title" --output-format json \
 # set reasoning effort level
 claude "debug this complex issue" --effort high
 claude "quick question" --effort low
+
+# start a fresh session (don't continue previous conversation)
+claude "start fresh on this" --no-continue
+
+# resume a specific session by ID
+claude "continue where we left off" --resume abc123-def456
 ```
 
-Uses its own `_prog` container (no TTY — works from scripts, cron, other tools). `--continue` is passed automatically so programmatic runs share session context via the mounted `.claude` data dir.
+Uses its own `_prog` container (no TTY — works from scripts, cron, other tools). `--continue` is passed automatically so programmatic runs share session context via the mounted `.claude` data dir. Use `--no-continue` to force a fresh session, or `--resume <session_id>` to resume a specific conversation instead of the most recent one.
 
 #### Model selection
 
@@ -507,6 +513,8 @@ Request body:
 | `append_system_prompt` | string | Append to the default system prompt                                      | _(none)_        |
 | `json_schema`          | string | JSON Schema for structured output (result in `structured_output` field)  | _(none)_        |
 | `effort`               | string | Reasoning effort level (`low`, `medium`, `high`, `max`)                  | _(none)_        |
+| `no_continue`          | bool   | Don't try to continue previous conversation — start fresh                | `false`         |
+| `resume`               | string | Resume a specific session by ID (overrides auto-continue)                | _(none)_        |
 
 Response is always `application/json` — same format as `--output-format json`.
 
