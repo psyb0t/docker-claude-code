@@ -470,7 +470,27 @@ def main() -> None:
     global config
     config = load_config()
 
-    app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
+    async def _post_init(application: Application) -> None:
+        from telegram import BotCommand
+
+        await application.bot.set_my_commands(
+            [
+                BotCommand("bash", "Run a shell command"),
+                BotCommand("fetch", "Download a file from workspace"),
+                BotCommand("cancel", "Kill running claude process"),
+                BotCommand("status", "Show busy chats"),
+                BotCommand("config", "Show chat config"),
+                BotCommand("reload", "Reload YAML config"),
+            ]
+        )
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .concurrent_updates(True)
+        .post_init(_post_init)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))
