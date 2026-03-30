@@ -162,6 +162,16 @@ Set these directly on the container (e.g. in docker-compose). Not used by the wr
 | `CLAUDE_MODE_API_PORT`  | Port for the API server                                                  | `8080`   |
 | `CLAUDE_MODE_API_TOKEN` | Bearer token to require for API requests (optional)                      | _(none)_ |
 
+### Telegram mode vars
+
+Set these directly on the container (e.g. in docker-compose). Not used by the wrapper script.
+
+| Variable                   | What it does                                                      | Default                      |
+| -------------------------- | ----------------------------------------------------------------- | ---------------------------- |
+| `CLAUDE_MODE_TELEGRAM`     | Set to `1` to run as Telegram bot                                 | _(none)_                     |
+| `CLAUDE_TELEGRAM_BOT_TOKEN`| Bot token from [@BotFather](https://t.me/BotFather)               | _(none)_                     |
+| `CLAUDE_TELEGRAM_CONFIG`   | Path to the YAML config file inside the container                 | `/home/claude/.claude/telegram.yml` |
+
 To set wrapper vars, export them on your host:
 
 ```bash
@@ -572,6 +582,87 @@ curl http://localhost:8080/status -H "Authorization: Bearer your-secret-token"
 curl -X POST "http://localhost:8080/run/cancel?workspace=myproject" \
   -H "Authorization: Bearer your-secret-token"
 ```
+
+### Telegram mode
+
+Set `CLAUDE_MODE_TELEGRAM=1` to run the container as a Telegram bot. Each chat gets its own workspace and can be configured independently with its own model, effort level, system prompt, and access control.
+
+#### 1. Create a bot
+
+Talk to [@BotFather](https://t.me/BotFather) on Telegram, run `/newbot`, and save the token.
+
+#### 2. Create the config
+
+Create `~/.claude/telegram.yml` (see `telegram.yml.example` in this repo):
+
+```yaml
+# which chats the bot responds in (DM user IDs and/or group chat IDs)
+# empty = no restriction (not recommended)
+allowed_chats:
+  - 123456789       # your DM (user ID = chat ID for DMs)
+  - -987654321      # a group chat
+
+# default settings for chats not explicitly configured
+default:
+  model: sonnet
+  effort: high
+  continue: true
+
+# per-chat overrides
+chats:
+  123456789:
+    workspace: my-project
+    model: opus
+    effort: max
+    system_prompt: "You are a senior engineer"
+
+  -987654321:
+    workspace: team-stuff
+    model: sonnet
+    effort: medium
+    continue: false
+    append_system_prompt: "Keep responses short"
+    # restrict who can use the bot in this group
+    allowed_users:
+      - 123456789
+      - 111222333
+```
+
+Get your user/chat ID from [@userinfobot](https://t.me/userinfobot). Group chat IDs are negative.
+
+Per-chat config options: `workspace`, `model`, `effort`, `continue`, `system_prompt`, `append_system_prompt`, `max_budget_usd`, `allowed_users`.
+
+#### 3. Run it
+
+```yaml
+# docker-compose.yml
+services:
+  claude-telegram:
+    image: psyb0t/claude-code:latest
+    environment:
+      - CLAUDE_MODE_TELEGRAM=1
+      - CLAUDE_TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+      - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
+    volumes:
+      - ~/.claude:/home/claude/.claude
+      - /your/projects:/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+#### Bot commands
+
+| Command              | What it does                                                        |
+| -------------------- | ------------------------------------------------------------------- |
+| any text message     | Sent to claude as a prompt                                          |
+| send a file/photo/video/voice | Saved to workspace; caption is used as prompt if present   |
+| `/bash <command>`    | Run a shell command in the chat's workspace, get output back        |
+| `/fetch <path>`      | Download a file from the workspace as a Telegram attachment         |
+| `/cancel`            | Kill the running claude process for this chat                       |
+| `/status`            | Show which chats are currently busy                                 |
+| `/config`            | Show this chat's current config                                     |
+| `/reload`            | Hot-reload the YAML config without restarting                       |
+
+Claude can send files back by including `[SEND_FILE: relative/path]` in its response — images are sent as photos, videos as videos, everything else as documents. Long responses are automatically split across multiple messages.
 
 ## 🔧 Customization
 

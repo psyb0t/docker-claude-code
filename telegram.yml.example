@@ -1,0 +1,39 @@
+# Telegram bot configuration
+# Copy to ~/.claude/telegram.yml and edit
+
+# Allowed chats — DM user IDs (positive) and/or group chat IDs (negative).
+# Empty list = no restriction. Get your ID from @userinfobot.
+allowed_chats:
+  - 123456789       # your DM (user ID = chat ID for DMs)
+  - -987654321      # a group chat
+
+# Default settings for chats not explicitly configured below.
+# Each chat gets its own workspace at /workspaces/chat_<chat_id>.
+default:
+  model: sonnet
+  effort: high
+  continue: true
+  # system_prompt: "You are a helpful assistant"
+  # append_system_prompt: "Be concise"
+  # max_budget_usd: 5.0
+
+# Per-chat overrides. Keys are telegram chat IDs.
+# Group chats have negative IDs.
+chats:
+  123456789:
+    workspace: my-project
+    model: opus
+    effort: max
+    continue: true
+    system_prompt: "You are a senior engineer"
+
+  -987654321:
+    workspace: team-stuff
+    model: sonnet
+    effort: medium
+    continue: false
+    append_system_prompt: "Keep responses short"
+    # restrict who can use the bot in this group
+    allowed_users:
+      - 123456789
+      - 111222333

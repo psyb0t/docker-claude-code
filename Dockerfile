@@ -16,7 +16,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
 RUN apt-get update && apt-get install -y \
     python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --no-cache-dir fastapi uvicorn
+    && pip3 install --no-cache-dir fastapi uvicorn python-telegram-bot pyyaml
 
 # docker (needed for docker-in-docker)
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
@@ -61,6 +61,7 @@ WORKDIR /workspace
 # entrypoint + api server
 COPY entrypoint.sh /home/claude/entrypoint.sh
 COPY api_server.py /home/claude/api_server.py
+COPY telegram_bot.py /home/claude/telegram_bot.py
 RUN chmod +x /home/claude/entrypoint.sh
 
 ENTRYPOINT ["/home/claude/entrypoint.sh"]

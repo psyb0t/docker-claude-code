@@ -212,6 +212,17 @@ if [ "${CLAUDE_MODE_API:-}" = "1" ]; then
 		bash -c "export HOME=/home/claude && export CLAUDE_CONFIG_DIR=/home/claude/.claude && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH && exec python3 /home/claude/api_server.py"
 fi
 
+# telegram mode — run telegram bot instead of claude
+if [ "${CLAUDE_MODE_TELEGRAM:-}" = "1" ]; then
+	dbg "mode: telegram bot"
+	mkdir -p /workspaces
+	chown claude:claude /workspaces
+	CLAUDE_UID=$(id -u claude)
+	CLAUDE_GID=$(id -g claude)
+	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
+		bash -c "export HOME=/home/claude && export CLAUDE_CONFIG_DIR=/home/claude/.claude && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH && exec python3 /home/claude/telegram_bot.py"
+fi
+
 # build the command to run as claude
 CMD="cd \"$WORKSPACE_DIR\""
 CMD="$CMD && export HOME=/home/claude"
