@@ -141,20 +141,37 @@ def _is_video(path: str) -> bool:
 
 async def _send_file(bot, chat_id: int, path: str) -> None:
     if not os.path.isfile(path):
+        await bot.send_message(
+            chat_id=chat_id, text=f"not found: {os.path.basename(path)}"
+        )
         return
     size = os.path.getsize(path)
-    if size > 50_000_000:
-        await bot.send_message(chat_id=chat_id, text=f"file too large: {path}")
+    if size == 0:
+        await bot.send_message(
+            chat_id=chat_id, text=f"file is empty: {os.path.basename(path)}"
+        )
         return
-    with open(path, "rb") as f:
-        inp = InputFile(f, filename=os.path.basename(path))
-        if _is_image(path):
-            await bot.send_photo(chat_id=chat_id, photo=inp)
-            return
-        if _is_video(path):
-            await bot.send_video(chat_id=chat_id, video=inp)
-            return
-        await bot.send_document(chat_id=chat_id, document=inp)
+    if size > 50_000_000:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"file too large ({size} bytes): {os.path.basename(path)}",
+        )
+        return
+    name = os.path.basename(path)
+    logger.info("sending file %s (%d bytes) to chat %s", name, size, chat_id)
+    try:
+        with open(path, "rb") as f:
+            inp = InputFile(f, filename=name)
+            if _is_image(path):
+                await bot.send_photo(chat_id=chat_id, photo=inp)
+                return
+            if _is_video(path):
+                await bot.send_video(chat_id=chat_id, video=inp)
+                return
+            await bot.send_document(chat_id=chat_id, document=inp)
+    except Exception as e:
+        logger.exception("failed to send file %s", name)
+        await bot.send_message(chat_id=chat_id, text=f"failed to send {name}: {e}")
 
 
 _FILE_TAG_RE = re.compile(r"\[SEND_FILE:\s*(.+?)\]")
@@ -196,11 +213,19 @@ async def _run_prompt(
     chat_id = chat.id
 
     if chat_id in busy_chats:
+        logger.info("chat %s busy, rejecting prompt", chat_id)
         await update.effective_message.reply_text("busy, try again later")
         return
 
     chat_cfg = get_chat_config(chat_id)
     workspace = _resolve_workspace(chat_cfg)
+    logger.info(
+        "chat %s prompt (%d chars) workspace=%s model=%s",
+        chat_id,
+        len(prompt),
+        workspace,
+        chat_cfg.get("model", "default"),
+    )
     os.makedirs(workspace, exist_ok=True)
 
     busy_chats[chat_id] = None
@@ -238,6 +263,13 @@ async def _run_prompt(
 
         if not output:
             output = f"claude exited with code {proc.returncode} and no output"
+
+        logger.info(
+            "chat %s claude done, exit=%s output=%d chars",
+            chat_id,
+            proc.returncode,
+            len(output),
+        )
 
         stop_typing.set()
         await typing_task
@@ -287,6 +319,7 @@ async def _handle_file_upload(
     tg_file = await tg_file_obj.get_file()
     dest = os.path.join(workspace, file_name)
     await tg_file.download_to_drive(dest)
+    logger.info("chat %s uploaded %s to %s", chat.id, file_name, dest)
 
     caption = msg.caption or ""
     if not caption:
@@ -408,6 +441,7 @@ async def cmd_bash(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_cfg = get_chat_config(chat.id)
     workspace = _resolve_workspace(chat_cfg)
     os.makedirs(workspace, exist_ok=True)
+    logger.info("chat %s /bash: %s", chat.id, command)
 
     proc = None
     try:
@@ -466,6 +500,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    # silence httpx polling spam
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     global config
     config = load_config()
