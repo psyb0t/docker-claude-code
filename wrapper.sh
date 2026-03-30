@@ -82,6 +82,14 @@ if [ "${1:-}" = "setup-token" ]; then
     exit 0
 fi
 
+# passthrough commands — run in throwaway container, bypass entrypoint
+case "${1:-}" in
+    -v|--version|doctor|auth)
+        docker run --rm --entrypoint claude "${DOCKER_ARGS[@]}" $CLAUDE_IMAGE "$@"
+        exit 0
+        ;;
+esac
+
 # Parse and validate args
 if [ $# -gt 0 ]; then
     NEEDS_VERBOSE=0

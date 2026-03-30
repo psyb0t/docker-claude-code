@@ -196,10 +196,10 @@ Either log in interactively or set up a token:
 claude setup-token
 
 # then use the token for programmatic/headless runs
-CLAUDE_CODE_OAUTH_TOKEN=xxx claude "do stuff"
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx claude "do stuff"
 
 # or just use an API key
-ANTHROPIC_API_KEY=sk-ant-xxx claude "do stuff"
+ANTHROPIC_API_KEY=sk-ant-api03-xxx claude "do stuff"
 ```
 
 ### Forwarding env vars
@@ -236,6 +236,18 @@ Just like the native CLI but in a container. The container persists between runs
 
 ```bash
 claude --no-update    # skip auto-update
+```
+
+### Utility commands
+
+Some claude commands are passed through directly:
+
+```bash
+claude --version      # show claude version
+claude -v             # same thing
+claude doctor         # health check
+claude auth           # manage authentication
+claude setup-token    # interactive OAuth token setup
 ```
 
 ### Programmatic mode
