@@ -67,6 +67,7 @@ class RunRequest(BaseModel):
     effort: Optional[str] = None
     no_continue: bool = False
     resume: Optional[str] = None
+    fire_and_forget: bool = False
 
 
 def _build_args(req: RunRequest, with_continue: bool = False):
@@ -152,7 +153,11 @@ async def _stream(workspace: str, req: RunRequest):
 
 
 @app.post("/run")
-async def run(req: RunRequest, authorization: Optional[str] = Header(None)):
+async def run(
+    request: Request,
+    req: RunRequest,
+    authorization: Optional[str] = Header(None),
+):
     _check_auth(authorization)
 
     workspace = _resolve_workspace(req.workspace)
@@ -172,9 +177,31 @@ async def run(req: RunRequest, authorization: Optional[str] = Header(None)):
 
     busy_workspaces[workspace] = None  # type: ignore[assignment]
 
+    watcher = None
+    if not req.fire_and_forget:
+
+        async def _disconnect_watcher():
+            """Kill the claude process if the client disconnects."""
+            while workspace in busy_workspaces:
+                if await request.is_disconnected():
+                    proc = busy_workspaces.get(workspace)
+                    if proc:
+                        proc.kill()
+                    return
+                await asyncio.sleep(1)
+
+        watcher = asyncio.create_task(_disconnect_watcher())
+
     output = b""
-    async for chunk in _stream(workspace, req):
-        output += chunk
+    try:
+        async for chunk in _stream(workspace, req):
+            output += chunk
+    finally:
+        if watcher:
+            watcher.cancel()
+
+    if not req.fire_and_forget and await request.is_disconnected():
+        return Response(status_code=499)
 
     return Response(content=output, media_type="application/json")
 

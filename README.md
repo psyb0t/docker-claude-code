@@ -419,6 +419,7 @@ curl -X POST http://localhost:8080/run \
 | `effort`               | string | Reasoning effort (`low`, `medium`, `high`, `max`)                        | _(none)_        |
 | `no_continue`          | bool   | Start fresh (don't continue previous conversation)                       | `false`         |
 | `resume`               | string | Resume a specific session by ID                                          | _(none)_        |
+| `fire_and_forget`      | bool   | Don't kill the process if the client disconnects                         | `false`         |
 
 Returns `application/json` (same format as `--output-format json`). Returns **409** if the workspace is already busy.
 
