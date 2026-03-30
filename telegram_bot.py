@@ -75,7 +75,12 @@ def _resolve_workspace(chat_cfg: dict) -> str:
 
 
 TELEGRAM_SYSTEM_HINT = (
-    "You are responding via Telegram. Keep responses concise. "
+    "You are responding via Telegram. Keep responses concise but pretty. "
+    "Format using Telegram HTML: <b>bold</b>, <i>italic</i>, <u>underline</u>, "
+    "<s>strikethrough</s>, <code>inline code</code>, "
+    '<pre language="python">code blocks</pre>, <blockquote>quotes</blockquote>. '
+    "Do NOT use markdown — no *, _, `, #, - bullets. Use HTML tags only. "
+    "Escape &, < and > as &amp; &lt; &gt; in regular text. "
     "When the user asks you to send/share a file, image, or video, "
     "include [SEND_FILE: relative/path] in your response and it will "
     "be delivered as a Telegram attachment. You can include multiple tags. "
@@ -116,17 +121,22 @@ def _build_env() -> dict:
     }
 
 
-async def _send_long(bot, chat_id: int, text: str) -> None:
+async def _send_long(bot, chat_id: int, text: str, parse_mode: str = "HTML") -> None:
     max_len = MessageLimit.MAX_TEXT_LENGTH
     while text:
-        if len(text) <= max_len:
-            await bot.send_message(chat_id=chat_id, text=text)
+        chunk = text[:max_len] if len(text) > max_len else text
+        if len(text) > max_len:
+            split_at = text.rfind("\n", 0, max_len)
+            if split_at != -1:
+                chunk = text[:split_at]
+        try:
+            await bot.send_message(chat_id=chat_id, text=chunk, parse_mode=parse_mode)
+        except Exception:
+            # if HTML parsing fails, fall back to plain text
+            await bot.send_message(chat_id=chat_id, text=chunk)
+        text = text[len(chunk) :].lstrip("\n")
+        if not text:
             return
-        split_at = text.rfind("\n", 0, max_len)
-        if split_at == -1:
-            split_at = max_len
-        await bot.send_message(chat_id=chat_id, text=text[:split_at])
-        text = text[split_at:].lstrip("\n")
 
 
 def _is_image(path: str) -> bool:
