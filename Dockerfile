@@ -121,9 +121,9 @@ RUN apt-get update && apt-get install -y \
     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# go 1.25.5
+# go 1.26.1
 ARG TARGETARCH
-RUN curl -fsSL https://go.dev/dl/go1.25.5.linux-${TARGETARCH}.tar.gz | tar -xzC /usr/local && \
+RUN curl -fsSL https://go.dev/dl/go1.26.1.linux-${TARGETARCH}.tar.gz | tar -xzC /usr/local && \
     echo 'export PATH="$PATH:/usr/local/go/bin"' > /etc/profile.d/go.sh
 ENV PATH=$PATH:/usr/local/go/bin
 

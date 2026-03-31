@@ -63,7 +63,7 @@ Pro tip: use `~/.claude/init.d/*.sh` hooks to pre-install your tools on first co
 | Node.js LTS + npm                     |       yes       |       yes        |
 | Docker CE + Compose                   |       yes       |       yes        |
 | Claude Code CLI                       |       yes       |       yes        |
-| Go 1.25.5 + tools                     |       yes       |        -         |
+| Go 1.26.1 + tools                     |       yes       |        -         |
 | Python 3.12.11 + tools                |       yes       |        -         |
 | Node.js dev tools                     |       yes       |        -         |
 | C/C++ tools                           |       yes       |        -         |
@@ -77,7 +77,7 @@ The full image is a buffet of dev tools. Here's what Claude gets to play with:
 
 **Languages & runtimes:**
 
-- Go 1.25.5 with the whole toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
+- Go 1.26.1 with the whole toolchain (golangci-lint, gopls, delve, staticcheck, gofumpt, gotests, impl, gomodifytags)
 - Python 3.12.11 via pyenv with linters, formatters, testing (flake8, black, isort, autoflake, pyright, mypy, vulture, pytest, poetry, pipenv) plus common libs (requests, beautifulsoup4, lxml, pyyaml, toml)
 - Node.js LTS with the npm ecosystem loaded (eslint, prettier, typescript, ts-node, yarn, pnpm, nodemon, pm2, framework CLIs, newman, http-server, serve, lighthouse, storybook)
 - C/C++ (gcc, g++, make, cmake, clang-format, valgrind, gdb, strace, ltrace)

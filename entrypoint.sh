@@ -66,7 +66,7 @@ CLAUDEMD_HEADER
 			cat <<'CLAUDEMD_FULL'
 
 ## Languages & Runtimes
-- **Go 1.25.5** - /usr/local/go/bin/go
+- **Go 1.26.1** - /usr/local/go/bin/go
 - **Python 3.12.11** (via pyenv) - default python
 - **Node.js LTS** - with npm
 
