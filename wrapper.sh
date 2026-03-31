@@ -82,6 +82,17 @@ if [ "${1:-}" = "setup-token" ]; then
     exit 0
 fi
 
+# stop — kill running interactive container for this workspace
+if [ "${1:-}" = "stop" ]; then
+    if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        docker stop "$container_name" >/dev/null 2>&1
+        echo "stopped $container_name"
+    else
+        echo "nothing running"
+    fi
+    exit 0
+fi
+
 # passthrough commands — run in throwaway container, bypass entrypoint
 case "${1:-}" in
     -v|--version|doctor|auth)
