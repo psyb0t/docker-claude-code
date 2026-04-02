@@ -8,7 +8,7 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 app = FastAPI()
 
@@ -63,16 +63,18 @@ def _resolve_path(path: str) -> str:
 
 
 class RunRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     prompt: str
     workspace: Optional[str] = None
     model: Optional[str] = None
-    system_prompt: Optional[str] = None
-    append_system_prompt: Optional[str] = None
-    json_schema: Optional[str] = None
+    system_prompt: Optional[str] = Field(None, alias="systemPrompt")
+    append_system_prompt: Optional[str] = Field(None, alias="appendSystemPrompt")
+    json_schema: Optional[str] = Field(None, alias="jsonSchema")
     effort: Optional[str] = None
-    no_continue: bool = False
+    no_continue: bool = Field(False, alias="noContinue")
     resume: Optional[str] = None
-    fire_and_forget: bool = False
+    fire_and_forget: bool = Field(False, alias="fireAndForget")
 
 
 def _build_args(req: RunRequest, with_continue: bool = False):

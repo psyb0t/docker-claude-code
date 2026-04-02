@@ -64,12 +64,12 @@ echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}-auth"
 echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}_prog-auth"
 dbg "wrote auth files"
 
-# check for --no-update before anything else
-NO_UPDATE=0
+# updates are disabled by default; pass --update to opt in
+DO_UPDATE=0
 REMAINING_ARGS=()
 for arg in "$@"; do
-    if [ "$arg" = "--no-update" ]; then
-        NO_UPDATE=1
+    if [ "$arg" = "--update" ]; then
+        DO_UPDATE=1
         continue
     fi
     REMAINING_ARGS+=("$arg")
@@ -149,7 +149,7 @@ if [ $# -gt 0 ]; then
                 PASS_ARGS+=("$arg")
                 ;;
             -*)
-                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --system-prompt, --append-system-prompt, --json-schema, --effort, --resume, --no-continue, --no-update)"
+                echo "❌ Unknown flag: $arg (allowed: -p, --print, --output-format, --model, --system-prompt, --append-system-prompt, --json-schema, --effort, --resume, --no-continue, --update)"
                 exit 1
                 ;;
             *)
@@ -189,7 +189,7 @@ fi
 
 # signal update via file (env vars don't work with docker start)
 UPDATE_FILE="$CLAUDE_DIR/.${container_name}-update"
-if [ "$NO_UPDATE" = "0" ]; then
+if [ "$DO_UPDATE" = "1" ]; then
     touch "$UPDATE_FILE"
 else
     rm -f "$UPDATE_FILE"

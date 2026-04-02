@@ -100,7 +100,7 @@ The full image is a buffet of dev tools. Here's what Claude gets to play with:
 
 - Auto-generated `CLAUDE.md` in workspace listing all available tools (so Claude knows what it has)
 - Auto-Git config from env vars
-- Auto-updates on interactive startup (skip with `--no-update`), background auto-updater disabled
+- Claude Code (auto-updates disabled by default, opt in with `--update`)
 - Workspace trust dialog pre-accepted (no annoying prompts)
 - Custom scripts via `~/.claude/bin` (in PATH automatically)
 - Init hooks via `~/.claude/init.d/*.sh` (run once on first container create)
@@ -232,10 +232,10 @@ If the value contains `:`, it's used as-is (docker `-v` syntax). Otherwise, same
 claude
 ```
 
-Just like the native CLI but in a container. The container persists between runs — `--continue` resumes your last conversation automatically. Claude auto-updates on each interactive start.
+Just like the native CLI but in a container. The container persists between runs — `--continue` resumes your last conversation automatically.
 
 ```bash
-claude --no-update    # skip auto-update
+claude --update    # opt in to auto-update on this run
 ```
 
 ### Utility commands
@@ -248,6 +248,7 @@ claude -v             # same thing
 claude doctor         # health check
 claude auth           # manage authentication
 claude setup-token    # interactive OAuth token setup
+claude stop           # stop the running interactive container for this workspace
 ```
 
 ### Programmatic mode
@@ -425,13 +426,13 @@ curl -X POST http://localhost:8080/run \
 | `prompt`               | string | The prompt to send                                                       | required        |
 | `workspace`            | string | Subpath under `/workspaces` (e.g. `myproject` → `/workspaces/myproject`) | `/workspaces`   |
 | `model`                | string | Model to use (same aliases as CLI)                                       | account default |
-| `system_prompt`        | string | Replace the default system prompt                                        | _(none)_        |
-| `append_system_prompt` | string | Append to the default system prompt                                      | _(none)_        |
-| `json_schema`          | string | JSON Schema for structured output                                        | _(none)_        |
+| `systemPrompt`         | string | Replace the default system prompt                                        | _(none)_        |
+| `appendSystemPrompt`   | string | Append to the default system prompt                                      | _(none)_        |
+| `jsonSchema`           | string | JSON Schema for structured output                                        | _(none)_        |
 | `effort`               | string | Reasoning effort (`low`, `medium`, `high`, `max`)                        | _(none)_        |
-| `no_continue`          | bool   | Start fresh (don't continue previous conversation)                       | `false`         |
+| `noContinue`           | bool   | Start fresh (don't continue previous conversation)                       | `false`         |
 | `resume`               | string | Resume a specific session by ID                                          | _(none)_        |
-| `fire_and_forget`      | bool   | Don't kill the process if the client disconnects                         | `false`         |
+| `fireAndForget`        | bool   | Don't kill the process if the client disconnects                         | `false`         |
 
 Returns `application/json` (same format as `--output-format json`). Returns **409** if the workspace is already busy.
 
