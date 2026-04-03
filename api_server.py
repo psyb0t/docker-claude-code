@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import json
 import os
 import signal
 from typing import Optional
@@ -11,6 +12,31 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 app = FastAPI()
+
+
+def _to_camel(name: str) -> str:
+    """Convert a snake_case string to camelCase."""
+    parts = name.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _normalize_keys(obj):
+    """Recursively convert all dict keys from snake_case to camelCase."""
+    if isinstance(obj, dict):
+        return {_to_camel(k): _normalize_keys(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalize_keys(item) for item in obj]
+    return obj
+
+
+def _normalize_response(raw: bytes) -> bytes:
+    """Parse raw JSON bytes, normalize keys to camelCase, return bytes."""
+    try:
+        parsed = json.loads(raw)
+        normalized = _normalize_keys(parsed)
+        return json.dumps(normalized).encode()
+    except (json.JSONDecodeError, ValueError):
+        return raw
 
 
 def _shutdown(sig, _frame):
@@ -216,7 +242,7 @@ async def run(
     if not req.fire_and_forget and await request.is_disconnected():
         return Response(status_code=499)
 
-    return Response(content=output, media_type="application/json")
+    return Response(content=_normalize_response(output), media_type="application/json")
 
 
 @app.get("/files/{path:path}")

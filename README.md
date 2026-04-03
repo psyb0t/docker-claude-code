@@ -290,19 +290,31 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
 
 **`text`** (default) — plain text response.
 
-**`json`** — single JSON object:
+**`json`** — single JSON object (all keys normalized to camelCase):
 
 ```json
 {
   "type": "result",
   "subtype": "success",
-  "is_error": false,
+  "isError": false,
   "result": "the response text",
-  "num_turns": 1,
-  "duration_ms": 3100,
-  "total_cost_usd": 0.156,
-  "session_id": "...",
-  "usage": { "input_tokens": 3, "output_tokens": 4 }
+  "numTurns": 1,
+  "durationMs": 3100,
+  "totalCostUsd": 0.156,
+  "sessionId": "...",
+  "usage": { "inputTokens": 3, "outputTokens": 4, "cacheReadInputTokens": 512 },
+  "modelUsage": {
+    "glm-5.1": {
+      "inputTokens": 15702,
+      "outputTokens": 28,
+      "cacheReadInputTokens": 6836,
+      "costUsd": 0.0826,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000
+    }
+  },
+  "permissionDenials": [],
+  "iterations": []
 }
 ```
 
