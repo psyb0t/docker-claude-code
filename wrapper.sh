@@ -93,6 +93,19 @@ if [ "${1:-}" = "stop" ]; then
     exit 0
 fi
 
+# clear-session — remove project session files for current workspace
+if [ "${1:-}" = "clear-session" ]; then
+    project_path=$(echo "$PWD" | sed 's|/|-|g')
+    project_dir="$CLAUDE_DIR/projects/${project_path}"
+    if [ -d "$project_dir" ]; then
+        rm -rf "$project_dir"
+        echo "cleared session for $PWD"
+    else
+        echo "no session found for $PWD (looked in $project_dir)"
+    fi
+    exit 0
+fi
+
 # passthrough commands — run in throwaway container, bypass entrypoint
 case "${1:-}" in
     -v|--version|doctor|auth)
@@ -105,6 +118,8 @@ esac
 if [ $# -gt 0 ]; then
     NEEDS_VERBOSE=0
     HAS_OUTPUT_FORMAT=0
+    HAS_PROMPT=0
+    HAS_NO_CONTINUE=0
     PASS_ARGS=(-p)
     EXPECT_VALUE=""
     for arg in "$@"; do
@@ -130,6 +145,7 @@ if [ $# -gt 0 ]; then
                 # already added, skip
                 ;;
             --no-continue)
+                HAS_NO_CONTINUE=1
                 PASS_ARGS+=("$arg")
                 ;;
             --output-format|--model|--system-prompt|--append-system-prompt|--json-schema|--effort|--resume)
@@ -154,6 +170,7 @@ if [ $# -gt 0 ]; then
                 ;;
             *)
                 # positional arg = prompt
+                HAS_PROMPT=1
                 PASS_ARGS+=("$arg")
                 ;;
         esac
@@ -164,27 +181,32 @@ if [ $# -gt 0 ]; then
         exit 1
     fi
 
-    [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
-    [ "$HAS_OUTPUT_FORMAT" = "0" ] && PASS_ARGS+=(--output-format text)
+    if [ "$HAS_PROMPT" = "1" ]; then
+        [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
+        [ "$HAS_OUTPUT_FORMAT" = "0" ] && PASS_ARGS+=(--output-format text)
 
-    dbg "PASS_ARGS: ${PASS_ARGS[*]}"
+        dbg "PASS_ARGS: ${PASS_ARGS[*]}"
 
-    # Programmatic mode — own container, no TTY
-    prog_name="${container_name}_prog"
-    dbg "prog container: $prog_name"
-    if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
-        dbg "prog: container does not exist, creating with docker run"
-        docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
-        dbg "prog: docker run exited with $?"
-    else
-        dbg "prog: container exists, writing args file and starting"
-        printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
-        trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
-        dbg "prog: docker start -a $prog_name"
-        docker start -a "$prog_name"
-        dbg "prog: docker start exited with $?"
+        # Programmatic mode — own container, no TTY
+        prog_name="${container_name}_prog"
+        dbg "prog container: $prog_name"
+        if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
+            dbg "prog: container does not exist, creating with docker run"
+            docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
+            dbg "prog: docker run exited with $?"
+        else
+            dbg "prog: container exists, writing args file and starting"
+            printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
+            trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
+            dbg "prog: docker start -a $prog_name"
+            docker start -a "$prog_name"
+            dbg "prog: docker start exited with $?"
+        fi
+        exit 0
     fi
-    exit 0
+
+    # flag-only args (no prompt): fall through to interactive mode
+    [ "$HAS_NO_CONTINUE" = "1" ] && touch "$CLAUDE_DIR/.${container_name}-no-continue"
 fi
 
 # signal update via file (env vars don't work with docker start)

@@ -16,8 +16,8 @@ Four ways to unleash it:
 - [What's Inside?](#-whats-inside-full-image)
 - [Requirements](#-requirements)
 - [Quick Start](#%EF%B8%8F-quick-start)
-- [ENV Vars](#-env-vars)
 - [Usage](#-usage)
+  - [Env vars](#env-vars)
   - [Interactive mode](#interactive-mode)
   - [Programmatic mode](#programmatic-mode)
   - [API mode](#api-mode)
@@ -147,47 +147,27 @@ docker pull psyb0t/claude-code:latest
 # 4. check install.sh for how the wrapper script works and wire it up yourself
 ```
 
-## 🔐 ENV Vars
+## 🧙 Usage
 
-### Wrapper script vars
+### Env vars
 
-Set these on your host (e.g. `~/.bashrc`). The wrapper forwards them to the container.
+Set these on your host (e.g. `~/.bashrc`). Apply to all modes — the wrapper forwards them to the container.
 
-| Variable                  | What it does                                                                   | Default              |
-| ------------------------- | ------------------------------------------------------------------------------ | -------------------- |
-| `CLAUDE_GIT_NAME`         | Git commit name inside the container                                           | _(none)_             |
-| `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                          | _(none)_             |
-| `ANTHROPIC_API_KEY`       | API key for authentication                                                     | _(none)_             |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                                 | _(none)_             |
-| `CLAUDE_DATA_DIR`         | Custom `.claude` data directory                                                | `~/.claude`          |
-| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                       | `~/.ssh/claude-code` |
-| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper (install-time only)                        | `/usr/local/bin`     |
-| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                         | `claude`             |
+| Variable                  | What it does                                                                    | Default              |
+| ------------------------- | ------------------------------------------------------------------------------- | -------------------- |
+| `ANTHROPIC_API_KEY`       | API key for authentication                                                      | _(none)_             |
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                                  | _(none)_             |
+| `CLAUDE_GIT_NAME`         | Git commit name inside the container                                            | _(none)_             |
+| `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                           | _(none)_             |
+| `CLAUDE_DATA_DIR`         | Custom `.claude` data directory                                                 | `~/.claude`          |
+| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                        | `~/.ssh/claude-code` |
+| `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper (install-time only)                         | `/usr/local/bin`     |
+| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                          | `claude`             |
 | `CLAUDE_ENV_*`            | Forward custom env vars (prefix is stripped: `CLAUDE_ENV_FOO=bar` → `FOO=bar`) | _(none)_             |
-| `CLAUDE_MOUNT_*`          | Mount extra volumes (path = same in container, or `src:dest`)                  | _(none)_             |
-| `DEBUG`                   | Enable debug logging with timestamps                                           | _(none)_             |
+| `CLAUDE_MOUNT_*`          | Mount extra volumes (path = same in container, or `src:dest`)                   | _(none)_             |
+| `DEBUG`                   | Enable debug logging with timestamps                                            | _(none)_             |
 
-### API mode vars
-
-Set directly on the container (e.g. docker-compose).
-
-| Variable                | What it does                                                             | Default  |
-| ----------------------- | ------------------------------------------------------------------------ | -------- |
-| `CLAUDE_MODE_API`       | Set to `1` to run as HTTP API server instead of interactive/programmatic | _(none)_ |
-| `CLAUDE_MODE_API_PORT`  | Port for the API server                                                  | `8080`   |
-| `CLAUDE_MODE_API_TOKEN` | Bearer token for API auth (optional)                                     | _(none)_ |
-
-### Telegram mode vars
-
-Set directly on the container (e.g. docker-compose).
-
-| Variable                    | What it does                                        | Default                             |
-| --------------------------- | --------------------------------------------------- | ----------------------------------- |
-| `CLAUDE_MODE_TELEGRAM`      | Set to `1` to run as Telegram bot                   | _(none)_                            |
-| `CLAUDE_TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather) | _(none)_                            |
-| `CLAUDE_TELEGRAM_CONFIG`    | Path to the YAML config file inside the container   | `/home/claude/.claude/telegram.yml` |
-
-### Authentication
+#### Authentication
 
 Either log in interactively or set up a token:
 
@@ -202,7 +182,7 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx claude "do stuff"
 ANTHROPIC_API_KEY=sk-ant-api03-xxx claude "do stuff"
 ```
 
-### Forwarding env vars
+#### Forwarding env vars
 
 The `CLAUDE_ENV_` prefix lets you inject arbitrary env vars into the container. The prefix gets stripped:
 
@@ -211,7 +191,7 @@ The `CLAUDE_ENV_` prefix lets you inject arbitrary env vars into the container. 
 CLAUDE_ENV_GITHUB_TOKEN=xxx CLAUDE_ENV_MY_VAR=hello claude "do stuff"
 ```
 
-### Extra volume mounts
+#### Extra volume mounts
 
 The `CLAUDE_MOUNT_` prefix mounts additional directories:
 
@@ -224,8 +204,6 @@ CLAUDE_MOUNT_RO=/data:/data:ro claude "read the data"                # read-only
 
 If the value contains `:`, it's used as-is (docker `-v` syntax). Otherwise, same path on both sides.
 
-## 🧙 Usage
-
 ### Interactive mode
 
 ```bash
@@ -235,7 +213,8 @@ claude
 Just like the native CLI but in a container. The container persists between runs — `--continue` resumes your last conversation automatically.
 
 ```bash
-claude --update    # opt in to auto-update on this run
+claude --update        # opt in to auto-update on this run
+claude --no-continue   # start fresh (skip auto-resume of last conversation)
 ```
 
 ### Utility commands
@@ -249,6 +228,7 @@ claude doctor         # health check
 claude auth           # manage authentication
 claude setup-token    # interactive OAuth token setup
 claude stop           # stop the running interactive container for this workspace
+claude clear-session  # delete session history for this workspace (next run starts fresh)
 ```
 
 ### Programmatic mode
@@ -422,6 +402,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
 
+#### Env vars
+
+| Variable                | What it does                                                             | Default  |
+| ----------------------- | ------------------------------------------------------------------------ | -------- |
+| `CLAUDE_MODE_API`       | Set to `1` to run as HTTP API server instead of interactive/programmatic | _(none)_ |
+| `CLAUDE_MODE_API_PORT`  | Port for the API server                                                  | `8080`   |
+| `CLAUDE_MODE_API_TOKEN` | Bearer token for API auth (optional)                                     | _(none)_ |
+
 #### Endpoints
 
 **`POST /run`** — send a prompt, get JSON back:
@@ -537,6 +525,14 @@ services:
       - ~/telegram-workspaces:/workspaces
       - /var/run/docker.sock:/var/run/docker.sock
 ```
+
+#### Env vars
+
+| Variable                    | What it does                                        | Default                             |
+| --------------------------- | --------------------------------------------------- | ----------------------------------- |
+| `CLAUDE_MODE_TELEGRAM`      | Set to `1` to run as Telegram bot                   | _(none)_                            |
+| `CLAUDE_TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather) | _(none)_                            |
+| `CLAUDE_TELEGRAM_CONFIG`    | Path to the YAML config file inside the container   | `/home/claude/.claude/telegram.yml` |
 
 #### Bot commands
 

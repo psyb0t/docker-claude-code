@@ -329,7 +329,14 @@ else
 		dbg "running claude update"
 		CMD="$CMD && claude update"
 	fi
-	CMD="$CMD && (claude --dangerously-skip-permissions --continue $SYSTEM_HINT_FLAG || exec claude --dangerously-skip-permissions $SYSTEM_HINT_FLAG)"
+	NO_CONTINUE_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-no-continue"
+	if [ -f "$NO_CONTINUE_FILE" ]; then
+		rm -f "$NO_CONTINUE_FILE"
+		dbg "no-continue flag set, skipping --continue"
+		CMD="$CMD && exec claude --dangerously-skip-permissions $SYSTEM_HINT_FLAG"
+	else
+		CMD="$CMD && (claude --dangerously-skip-permissions --continue $SYSTEM_HINT_FLAG || exec claude --dangerously-skip-permissions $SYSTEM_HINT_FLAG)"
+	fi
 fi
 
 
