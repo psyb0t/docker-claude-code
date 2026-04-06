@@ -2,7 +2,7 @@
 
 dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
 
-CLAUDE_IMAGE="psyb0t/claude-code:latest"
+CLAUDE_IMAGE="${CLAUDE_IMAGE:-psyb0t/claude-code:latest}"
 [ -n "$CLAUDE_MINIMAL" ] && CLAUDE_IMAGE="psyb0t/claude-code:latest-minimal"
 
 # Git identity - use env var if set, otherwise empty
@@ -17,7 +17,7 @@ CLAUDE_SSH="${CLAUDE_SSH_DIR:-$HOME/.ssh/claude-code}"
 
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
-container_name="claude-${sanitized_pwd}"
+container_name="${CLAUDE_CONTAINER_NAME:-claude-${sanitized_pwd}}"
 dbg "container_name=$container_name"
 dbg "CLAUDE_DIR=$CLAUDE_DIR"
 dbg "CLAUDE_SSH=$CLAUDE_SSH"
@@ -119,6 +119,7 @@ if [ $# -gt 0 ]; then
     NEEDS_VERBOSE=0
     HAS_OUTPUT_FORMAT=0
     HAS_PROMPT=0
+    HAS_PRINT=0
     HAS_NO_CONTINUE=0
     PASS_ARGS=(-p)
     EXPECT_VALUE=""
@@ -142,7 +143,7 @@ if [ $# -gt 0 ]; then
 
         case "$arg" in
             -p|--print)
-                # already added, skip
+                HAS_PRINT=1
                 ;;
             --no-continue)
                 HAS_NO_CONTINUE=1
@@ -169,6 +170,11 @@ if [ $# -gt 0 ]; then
                 exit 1
                 ;;
             *)
+                if [ "$HAS_PRINT" = "0" ]; then
+                    echo "❌ Unknown command: $arg"
+                    echo "   Use -p or --print for programmatic mode: claude -p \"your prompt\""
+                    exit 1
+                fi
                 # positional arg = prompt
                 HAS_PROMPT=1
                 PASS_ARGS+=("$arg")
@@ -190,19 +196,22 @@ if [ $# -gt 0 ]; then
         # Programmatic mode — own container, no TTY
         prog_name="${container_name}_prog"
         dbg "prog container: $prog_name"
+        prog_rc=0
         if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
             dbg "prog: container does not exist, creating with docker run"
             docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
-            dbg "prog: docker run exited with $?"
+            prog_rc=$?
+            dbg "prog: docker run exited with $prog_rc"
         else
             dbg "prog: container exists, writing args file and starting"
             printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
             trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
             dbg "prog: docker start -a $prog_name"
             docker start -a "$prog_name"
-            dbg "prog: docker start exited with $?"
+            prog_rc=$?
+            dbg "prog: docker start exited with $prog_rc"
         fi
-        exit 0
+        exit "$prog_rc"
     fi
 
     # flag-only args (no prompt): fall through to interactive mode

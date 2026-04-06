@@ -2,3 +2,5 @@ CLAUDE.md
 .research_files
 git-update.sh
 docker-compose.dev.yaml
+tests/.env
+base/
