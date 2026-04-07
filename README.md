@@ -466,11 +466,12 @@ curl -X POST http://localhost:8080/run \
 | `appendSystemPrompt`   | string | Append to the default system prompt                                      | _(none)_        |
 | `jsonSchema`           | string | JSON Schema for structured output                                        | _(none)_        |
 | `effort`               | string | Reasoning effort (`low`, `medium`, `high`, `max`)                        | _(none)_        |
+| `outputFormat`         | string | Response format: `json` or `json-verbose` (includes tool call history)   | `json`          |
 | `noContinue`           | bool   | Start fresh (don't continue previous conversation)                       | `false`         |
 | `resume`               | string | Resume a specific session by ID                                          | _(none)_        |
 | `fireAndForget`        | bool   | Don't kill the process if the client disconnects                         | `false`         |
 
-Returns `application/json` (same format as `--output-format json`). Returns **409** if the workspace is already busy.
+Returns `application/json`. Default format is `json` (same as `--output-format json`). Use `json-verbose` to get a `turns` array with every tool call and result (see [output formats](#output-formats) above). Returns **409** if the workspace is already busy.
 
 **`GET /files/{path}`** — list directory or download file:
 
