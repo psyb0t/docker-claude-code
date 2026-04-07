@@ -316,7 +316,7 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
     {
       "role": "tool_result",
       "content": [
-        { "type": "tool_result", "tool_use_id": "toolu_abc", "is_error": false, "content": "mothership" }
+        { "type": "toolResult", "toolUseId": "toolu_abc", "isError": false, "content": "mothership" }
       ]
     },
     {
@@ -326,7 +326,7 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
       ]
     }
   ],
-  "system": { "session_id": "...", "model": "claude-opus-4-6", "cwd": "/workspace", "tools": ["Bash", "Read", ...] },
+  "system": { "sessionId": "...", "model": "claude-opus-4-6", "cwd": "/workspace", "tools": ["Bash", "Read", ...] },
   "numTurns": 2,
   "durationMs": 10600,
   "totalCostUsd": 0.049,
@@ -334,7 +334,7 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
 }
 ```
 
-**`stream-json`** — NDJSON stream, one event per line. Event types: `system` (init), `assistant` (text/tool_use), `user` (tool results), `rate_limit_event`, `result` (final summary with cost). A typical multi-step run: `system` → (`assistant` → `user`) × N → `result`.
+**`stream-json`** — NDJSON stream, one event per line. All keys normalized to camelCase. Event types: `system` (init), `assistant` (text/tool_use), `user` (tool results), `rateLimitEvent`, `result` (final summary with cost). A typical multi-step run: `system` → (`assistant` → `user`) × N → `result`.
 
 <details>
 <summary>Full stream-json event examples</summary>
@@ -346,7 +346,7 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
   "type": "system",
   "subtype": "init",
   "cwd": "/your/project",
-  "session_id": "...",
+  "sessionId": "...",
   "tools": ["Bash", "Read", "Write", "Glob", "Grep"],
   "model": "claude-opus-4-6",
   "permissionMode": "bypassPermissions"
@@ -362,7 +362,7 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
     "model": "claude-opus-4-6",
     "role": "assistant",
     "content": [{ "type": "text", "text": "I'll install cowsay first." }],
-    "usage": { "input_tokens": 3, "output_tokens": 2 }
+    "usage": { "inputTokens": 3, "outputTokens": 2 }
   }
 }
 ```
@@ -391,10 +391,10 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
   "message": {
     "content": [
       {
-        "tool_use_id": "toolu_abc123",
-        "type": "tool_result",
+        "toolUseId": "toolu_abc123",
+        "type": "toolResult",
         "content": "Setting up cowsay (3.03+dfsg2-8) ...",
-        "is_error": false
+        "isError": false
       }
     ]
   }
@@ -407,10 +407,10 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
 {
   "type": "result",
   "subtype": "success",
-  "is_error": false,
-  "num_turns": 10,
-  "duration_ms": 60360,
-  "total_cost_usd": 0.203,
+  "isError": false,
+  "numTurns": 10,
+  "durationMs": 60360,
+  "totalCostUsd": 0.203,
   "result": "Here's what I did:\n1. Installed cowsay..."
 }
 ```
