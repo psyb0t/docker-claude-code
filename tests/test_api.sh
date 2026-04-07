@@ -243,6 +243,23 @@ test_api_continue_fallback() {
     _api_stop "${API_CONTAINER}-cont"
 }
 
+# ── json-verbose output format ──────────────────────────────────────────────
+
+test_api_json_verbose() {
+    _api_start "${API_CONTAINER}-jv" || return 1
+
+    local out
+    out=$(post "$API_BASE/run" \
+        "{\"prompt\": \"read the file /etc/hostname and tell me what it says\", \"model\": \"$TEST_MODEL\", \"noContinue\": true, \"outputFormat\": \"json-verbose\"}")
+    assert_contains "$out" '"turns"' "json-verbose has turns array" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
+    assert_contains "$out" '"tool_use"' "json-verbose has tool_use in turns" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
+    assert_contains "$out" '"tool_result"' "json-verbose has tool_result in turns" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
+    assert_contains "$out" '"system"' "json-verbose has system init" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
+
+    echo "OK: api_json_verbose"
+    _api_stop "${API_CONTAINER}-jv"
+}
+
 ALL_TESTS+=(
     test_api_endpoints
     test_api_run
@@ -254,4 +271,5 @@ ALL_TESTS+=(
     test_api_no_continue
     test_api_append_system_prompt
     test_api_continue_fallback
+    test_api_json_verbose
 )

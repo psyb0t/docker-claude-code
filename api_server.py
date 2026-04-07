@@ -11,6 +11,8 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from jsonverbose import assemble  # noqa: E402
+
 app = FastAPI()
 
 
@@ -98,6 +100,7 @@ class RunRequest(BaseModel):
     append_system_prompt: Optional[str] = Field(None, alias="appendSystemPrompt")
     json_schema: Optional[str] = Field(None, alias="jsonSchema")
     effort: Optional[str] = None
+    output_format: Optional[str] = Field(None, alias="outputFormat")
     no_continue: bool = Field(False, alias="noContinue")
     resume: Optional[str] = None
     fire_and_forget: bool = Field(False, alias="fireAndForget")
@@ -109,7 +112,10 @@ def _build_args(req: RunRequest, with_continue: bool = False):
         args += ["--resume", req.resume]
     elif with_continue and not req.no_continue:
         args.append("--continue")
-    args += ["-p", req.prompt, "--output-format", "json"]
+    if req.output_format == "json-verbose":
+        args += ["-p", req.prompt, "--output-format", "stream-json", "--verbose"]
+    else:
+        args += ["-p", req.prompt, "--output-format", "json"]
     if req.model:
         args += ["--model", req.model]
     if req.system_prompt:
@@ -242,7 +248,14 @@ async def run(
     if not req.fire_and_forget and await request.is_disconnected():
         return Response(status_code=499)
 
-    return Response(content=_normalize_response(output), media_type="application/json")
+    if req.output_format == "json-verbose":
+        lines = output.decode().splitlines()
+        assembled = assemble(lines)
+        content = json.dumps(assembled).encode()
+    else:
+        content = _normalize_response(output)
+
+    return Response(content=content, media_type="application/json")
 
 
 @app.get("/files/{path:path}")
