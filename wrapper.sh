@@ -121,6 +121,7 @@ if [ $# -gt 0 ]; then
     HAS_PROMPT=0
     HAS_PRINT=0
     HAS_NO_CONTINUE=0
+    JSON_VERBOSE=0
     PASS_ARGS=(-p)
     EXPECT_VALUE=""
     for arg in "$@"; do
@@ -131,7 +132,8 @@ if [ $# -gt 0 ]; then
                     case "$arg" in
                         text|json) ;;
                         stream-json) NEEDS_VERBOSE=1 ;;
-                        *) echo "❌ Invalid output format: $arg (allowed: text, json, stream-json)"; exit 1 ;;
+                        json-verbose) JSON_VERBOSE=1; NEEDS_VERBOSE=1 ;;
+                        *) echo "❌ Invalid output format: $arg (allowed: text, json, json-verbose, stream-json)"; exit 1 ;;
                     esac
                     ;;
                 --model|--system-prompt|--append-system-prompt|--json-schema|--effort|--resume) ;;
@@ -158,7 +160,8 @@ if [ $# -gt 0 ]; then
                 case "$fmt" in
                     text|json) ;;
                     stream-json) NEEDS_VERBOSE=1 ;;
-                    *) echo "❌ Invalid output format: $fmt (allowed: text, json, stream-json)"; exit 1 ;;
+                    json-verbose) JSON_VERBOSE=1; NEEDS_VERBOSE=1 ;;
+                    *) echo "❌ Invalid output format: $fmt (allowed: text, json, json-verbose, stream-json)"; exit 1 ;;
                 esac
                 PASS_ARGS+=("$arg")
                 ;;
@@ -189,7 +192,20 @@ if [ $# -gt 0 ]; then
 
     if [ "$HAS_PROMPT" = "1" ]; then
         [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
-        [ "$HAS_OUTPUT_FORMAT" = "0" ] && PASS_ARGS+=(--output-format text)
+        if [ "$HAS_OUTPUT_FORMAT" = "0" ]; then
+            PASS_ARGS+=(--output-format text)
+        elif [ "$JSON_VERBOSE" = "1" ]; then
+            # replace json-verbose with stream-json in PASS_ARGS
+            FIXED_ARGS=()
+            for a in "${PASS_ARGS[@]}"; do
+                case "$a" in
+                    json-verbose) FIXED_ARGS+=(stream-json) ;;
+                    --output-format=json-verbose) FIXED_ARGS+=(--output-format=stream-json) ;;
+                    *) FIXED_ARGS+=("$a") ;;
+                esac
+            done
+            PASS_ARGS=("${FIXED_ARGS[@]}")
+        fi
 
         dbg "PASS_ARGS: ${PASS_ARGS[*]}"
 
@@ -199,16 +215,28 @@ if [ $# -gt 0 ]; then
         prog_rc=0
         if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
             dbg "prog: container does not exist, creating with docker run"
-            docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
-            prog_rc=$?
+            if [ "$JSON_VERBOSE" = "1" ]; then
+                docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}" \
+                    | docker run --rm -i --entrypoint python3 $CLAUDE_IMAGE /home/claude/jsonverbose.py
+                prog_rc=${PIPESTATUS[0]}
+            else
+                docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
+                prog_rc=$?
+            fi
             dbg "prog: docker run exited with $prog_rc"
         else
             dbg "prog: container exists, writing args file and starting"
             printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
             trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
             dbg "prog: docker start -a $prog_name"
-            docker start -a "$prog_name"
-            prog_rc=$?
+            if [ "$JSON_VERBOSE" = "1" ]; then
+                docker start -a "$prog_name" \
+                    | docker run --rm -i --entrypoint python3 $CLAUDE_IMAGE /home/claude/jsonverbose.py
+                prog_rc=${PIPESTATUS[0]}
+            else
+                docker start -a "$prog_name"
+                prog_rc=$?
+            fi
             dbg "prog: docker start exited with $prog_rc"
         fi
         exit "$prog_rc"

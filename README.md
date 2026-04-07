@@ -238,6 +238,7 @@ Pass a prompt and get a response. `-p` is added automatically. No TTY, works fro
 ```bash
 claude "explain this codebase"                                      # plain text (default)
 claude "explain this codebase" --output-format json                 # JSON response
+claude "list all TODOs" --output-format json-verbose | jq .          # JSON with full tool call history
 claude "list all TODOs" --output-format stream-json | jq .          # streaming NDJSON
 claude "explain this codebase" --model opus                         # pick your model
 claude "review this" --system-prompt "You are a security auditor"   # custom system prompt
@@ -295,6 +296,41 @@ You can also pin specific versions with full model names (`claude-opus-4-6`, `cl
   },
   "permissionDenials": [],
   "iterations": []
+}
+```
+
+**`json-verbose`** — single JSON object like `json`, but with a `turns` array showing every tool call, tool result, and assistant message. Under the hood it runs `stream-json` and assembles the events into one response. Best of both worlds — one object to parse, full visibility into what Claude did:
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "result": "The hostname is mothership.",
+  "turns": [
+    {
+      "role": "assistant",
+      "content": [
+        { "type": "tool_use", "id": "toolu_abc", "name": "Bash", "input": { "command": "hostname" } }
+      ]
+    },
+    {
+      "role": "tool_result",
+      "content": [
+        { "type": "tool_result", "tool_use_id": "toolu_abc", "is_error": false, "content": "mothership" }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        { "type": "text", "text": "The hostname is mothership." }
+      ]
+    }
+  ],
+  "system": { "session_id": "...", "model": "claude-opus-4-6", "cwd": "/workspace", "tools": ["Bash", "Read", ...] },
+  "numTurns": 2,
+  "durationMs": 10600,
+  "totalCostUsd": 0.049,
+  "sessionId": "..."
 }
 ```
 
