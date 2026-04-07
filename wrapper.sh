@@ -192,10 +192,13 @@ if [ $# -gt 0 ]; then
 
     if [ "$HAS_PROMPT" = "1" ]; then
         [ "$NEEDS_VERBOSE" = "1" ] && PASS_ARGS+=(--verbose)
+
+        # determine pipe mode and fix args for json-verbose
+        PIPE_MODE=""
         if [ "$HAS_OUTPUT_FORMAT" = "0" ]; then
             PASS_ARGS+=(--output-format text)
         elif [ "$JSON_VERBOSE" = "1" ]; then
-            # replace json-verbose with stream-json in PASS_ARGS
+            PIPE_MODE="json-verbose"
             FIXED_ARGS=()
             for a in "${PASS_ARGS[@]}"; do
                 case "$a" in
@@ -205,9 +208,18 @@ if [ $# -gt 0 ]; then
                 esac
             done
             PASS_ARGS=("${FIXED_ARGS[@]}")
+        else
+            # detect json or stream-json in args
+            for a in "${PASS_ARGS[@]}"; do
+                case "$a" in
+                    json|--output-format=json) PIPE_MODE="json" ;;
+                    stream-json|--output-format=stream-json) PIPE_MODE="stream-json" ;;
+                esac
+            done
         fi
 
         dbg "PASS_ARGS: ${PASS_ARGS[*]}"
+        dbg "PIPE_MODE: $PIPE_MODE"
 
         # Programmatic mode — own container, no TTY
         prog_name="${container_name}_prog"
@@ -215,9 +227,9 @@ if [ $# -gt 0 ]; then
         prog_rc=0
         if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
             dbg "prog: container does not exist, creating with docker run"
-            if [ "$JSON_VERBOSE" = "1" ]; then
+            if [ -n "$PIPE_MODE" ]; then
                 docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}" \
-                    | docker run --rm -i --entrypoint python3 $CLAUDE_IMAGE /home/claude/jsonverbose.py
+                    | docker run --rm -i --entrypoint python3 $CLAUDE_IMAGE /home/claude/jsonpipe.py "$PIPE_MODE"
                 prog_rc=${PIPESTATUS[0]}
             else
                 docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
@@ -229,9 +241,9 @@ if [ $# -gt 0 ]; then
             printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
             trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
             dbg "prog: docker start -a $prog_name"
-            if [ "$JSON_VERBOSE" = "1" ]; then
+            if [ -n "$PIPE_MODE" ]; then
                 docker start -a "$prog_name" \
-                    | docker run --rm -i --entrypoint python3 $CLAUDE_IMAGE /home/claude/jsonverbose.py
+                    | docker run --rm -i --entrypoint python3 $CLAUDE_IMAGE /home/claude/jsonpipe.py "$PIPE_MODE"
                 prog_rc=${PIPESTATUS[0]}
             else
                 docker start -a "$prog_name"

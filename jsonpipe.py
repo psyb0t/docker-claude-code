@@ -1,36 +1,63 @@
 #!/usr/bin/env python3
-"""Assemble stream-json JSONL into a single json-verbose response.
+"""JSON output normalizer for claude CLI.
 
-Reads JSONL from stdin (claude --output-format stream-json --verbose),
-collects all events into a turns array, and outputs a single JSON object
-that combines the final result with the full conversation history.
+Modes (pass as first arg):
+  json          — read all stdin, parse as JSON, normalize keys, output
+  stream-json   — read JSONL lines, normalize each, output immediately
+  json-verbose  — read JSONL, assemble into single JSON with turns array
 """
 
 import hashlib
 import json
 import sys
 
-_CONTENT_TRUNCATE = 2000  # chars to keep before truncating
+_CONTENT_TRUNCATE = 2000
+
+
+def _to_camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _normalize_keys(obj):
+    if isinstance(obj, dict):
+        return {_to_camel(k): _normalize_keys(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalize_keys(item) for item in obj]
+    return obj
+
+
+def _normalize_line(line: str) -> str:
+    line = line.strip()
+    if not line:
+        return ""
+    try:
+        parsed = json.loads(line)
+        return json.dumps(_normalize_keys(parsed))
+    except (json.JSONDecodeError, ValueError):
+        return line
+
+
+# ── json-verbose assembly ───────────────────────────────────────────────────
 
 
 def _extract_tool_uses(content):
-    """Extract tool_use entries from assistant message content."""
     out = []
     for block in content:
         if block.get("type") != "tool_use":
             continue
-        entry = {
-            "type": "tool_use",
-            "id": block["id"],
-            "name": block["name"],
-            "input": block.get("input", {}),
-        }
-        out.append(entry)
+        out.append(
+            {
+                "type": "tool_use",
+                "id": block["id"],
+                "name": block["name"],
+                "input": block.get("input", {}),
+            }
+        )
     return out
 
 
 def _extract_text(content):
-    """Extract text blocks from assistant message content."""
     out = []
     for block in content:
         if block.get("type") != "text":
@@ -40,7 +67,6 @@ def _extract_text(content):
 
 
 def _truncate_content(text: str) -> dict:
-    """Return content dict, truncating if over limit with sha256 + length."""
     if len(text) <= _CONTENT_TRUNCATE:
         return {"content": text}
     sha = hashlib.sha256(text.encode()).hexdigest()
@@ -53,7 +79,6 @@ def _truncate_content(text: str) -> dict:
 
 
 def _extract_tool_results(content):
-    """Extract tool_result entries from user message content."""
     out = []
     for block in content:
         if block.get("type") != "tool_result":
@@ -66,18 +91,18 @@ def _extract_tool_results(content):
             text = "\n".join(texts) if texts else str(raw)
         else:
             text = str(raw)
-        entry = {
-            "type": "tool_result",
-            "tool_use_id": block.get("tool_use_id", ""),
-            "is_error": block.get("is_error", False),
-            **_truncate_content(text),
-        }
-        out.append(entry)
+        out.append(
+            {
+                "type": "tool_result",
+                "tool_use_id": block.get("tool_use_id", ""),
+                "is_error": block.get("is_error", False),
+                **_truncate_content(text),
+            }
+        )
     return out
 
 
-def assemble(lines):
-    """Parse JSONL lines and return assembled json-verbose dict."""
+def _assemble(lines):
     turns = []
     result = None
     system_init = None
@@ -105,9 +130,7 @@ def assemble(lines):
         if etype == "assistant":
             msg = event.get("message", {})
             content = msg.get("content", [])
-            texts = _extract_text(content)
-            tool_uses = _extract_tool_uses(content)
-            parts = texts + tool_uses
+            parts = _extract_text(content) + _extract_tool_uses(content)
             if not parts:
                 continue
             turns.append({"role": "assistant", "content": parts})
@@ -130,7 +153,7 @@ def assemble(lines):
         return {
             "type": "result",
             "subtype": "error",
-            "is_error": True,
+            "isError": True,
             "result": "no result event found in stream",
             "turns": turns,
         }
@@ -139,14 +162,35 @@ def assemble(lines):
     if system_init:
         result["system"] = system_init
 
-    return result
+    return _normalize_keys(result)
+
+
+# ── main ────────────────────────────────────────────────────────────────────
 
 
 def main():
-    lines = sys.stdin.readlines()
-    output = assemble(lines)
-    json.dump(output, sys.stdout)
-    sys.stdout.write("\n")
+    mode = sys.argv[1] if len(sys.argv) > 1 else "json"
+
+    if mode == "stream-json":
+        for line in sys.stdin:
+            normalized = _normalize_line(line)
+            if normalized:
+                sys.stdout.write(normalized + "\n")
+                sys.stdout.flush()
+        return
+
+    if mode == "json-verbose":
+        lines = sys.stdin.readlines()
+        output = _assemble(lines)
+        json.dump(output, sys.stdout)
+        sys.stdout.write("\n")
+        return
+
+    # json mode — read all, normalize
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return
+    sys.stdout.write(_normalize_line(raw) + "\n")
 
 
 if __name__ == "__main__":

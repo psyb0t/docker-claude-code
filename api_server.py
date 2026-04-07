@@ -11,7 +11,6 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from jsonverbose import assemble  # noqa: E402
 
 app = FastAPI()
 
@@ -255,8 +254,9 @@ async def run(
         return Response(status_code=499)
 
     if req.output_format == "json-verbose":
-        lines = output.decode().splitlines()
-        assembled = assemble(lines)
+        from jsonpipe import _assemble
+
+        assembled = _assemble(output.decode().splitlines())
         content = json.dumps(assembled).encode()
     else:
         content = _normalize_response(output)

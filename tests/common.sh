@@ -57,6 +57,17 @@ assert_contains() {
     return 1
 }
 
+assert_not_contains() {
+    local actual="$1" unexpected="$2" name="$3"
+    if [[ "$actual" != *"$unexpected"* ]]; then
+        echo "  OK: $name"
+        return 0
+    fi
+    echo "  FAIL: $name: should NOT contain '$unexpected'"
+    echo "  actual: ${actual:0:500}"
+    return 1
+}
+
 assert_not_empty() {
     local actual="$1" name="$2"
     if [ -n "$actual" ]; then
@@ -70,6 +81,39 @@ assert_not_empty() {
 assert_exit_code() {
     local actual="$1" expected="$2" name="$3"
     assert_eq "$actual" "$expected" "$name (exit code)"
+}
+
+assert_no_snake_keys() {
+    local json_str="$1" name="$2"
+    local snake_keys
+    snake_keys=$(echo "$json_str" | python3 -c "
+import json, sys
+
+ALLOW = set()
+
+def check(obj, path=''):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            full = f'{path}.{k}' if path else k
+            if '_' in k and k not in ALLOW:
+                print(full)
+            check(v, full)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            check(v, f'{path}[{i}]')
+
+try:
+    check(json.load(sys.stdin))
+except:
+    pass
+" 2>/dev/null)
+    if [ -z "$snake_keys" ]; then
+        echo "  OK: $name"
+        return 0
+    fi
+    echo "  FAIL: $name: found snake_case keys:"
+    echo "$snake_keys" | head -20 | sed 's/^/    /'
+    return 1
 }
 
 # ── helpers ──────────────────────────────────────────────────────────────────

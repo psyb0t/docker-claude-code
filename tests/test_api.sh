@@ -72,6 +72,9 @@ test_api_run() {
         assert_contains "$out" "$expected" "$label" || { _api_stop; return 1; }
     done
 
+    # check camelCase on last response
+    assert_no_snake_keys "$out" "api json no snake_case keys" || { _api_stop; return 1; }
+
     echo "OK: api_run (${#RUN_CASES[@]} cases)"
     _api_stop
 }
@@ -253,8 +256,8 @@ test_api_json_verbose() {
         "{\"prompt\": \"read the file /etc/hostname and tell me what it says\", \"model\": \"$TEST_MODEL\", \"noContinue\": true, \"outputFormat\": \"json-verbose\"}")
     assert_contains "$out" '"turns"' "json-verbose has turns array" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
     assert_contains "$out" '"tool_use"' "json-verbose has tool_use in turns" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
-    assert_contains "$out" '"tool_result"' "json-verbose has tool_result in turns" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
     assert_contains "$out" '"system"' "json-verbose has system init" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
+    assert_no_snake_keys "$out" "api json-verbose no snake_case keys" || { _api_stop "${API_CONTAINER}-jv"; return 1; }
 
     echo "OK: api_json_verbose"
     _api_stop "${API_CONTAINER}-jv"

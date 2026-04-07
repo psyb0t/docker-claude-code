@@ -133,9 +133,54 @@ test_programmatic_bad_auth() {
     _prog_cleanup
 }
 
+# ── camelCase normalization ──────────────────────────────────────────────────
+
+test_programmatic_json_camelcase() {
+    _prog_setup
+    local out
+    out=$(_prog_run -p "respond with exactly CAMELTEST" \
+        --output-format json --model "$TEST_MODEL" --no-continue 2>&1)
+    assert_contains "$out" "CAMELTEST" "json has response" || { _prog_cleanup; return 1; }
+    assert_no_snake_keys "$out" "json no snake_case keys" || { _prog_cleanup; return 1; }
+    echo "OK: programmatic_json_camelcase"
+    _prog_cleanup
+}
+
+test_programmatic_json_verbose_camelcase() {
+    _prog_setup
+    local out
+    out=$(_prog_run -p "read the file /etc/hostname" \
+        --output-format json-verbose --model "$TEST_MODEL" --no-continue 2>&1)
+    assert_contains "$out" '"turns"' "json-verbose has turns" || { _prog_cleanup; return 1; }
+    assert_no_snake_keys "$out" "json-verbose no snake_case keys" || { _prog_cleanup; return 1; }
+    echo "OK: programmatic_json_verbose_camelcase"
+    _prog_cleanup
+}
+
+test_programmatic_stream_json_camelcase() {
+    _prog_setup
+    local out
+    out=$(_prog_run -p "respond with exactly STREAMTEST" \
+        --output-format stream-json --model "$TEST_MODEL" --no-continue 2>&1)
+    assert_contains "$out" "STREAMTEST" "stream-json has response" || { _prog_cleanup; return 1; }
+    # check each JSON line
+    local line
+    local failed=0
+    while IFS= read -r line; do
+        echo "$line" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null || continue
+        assert_no_snake_keys "$line" "stream-json line" || { failed=1; break; }
+    done <<< "$out"
+    [ "$failed" = "1" ] && { _prog_cleanup; return 1; }
+    echo "OK: programmatic_stream_json_camelcase"
+    _prog_cleanup
+}
+
 ALL_TESTS+=(
     test_programmatic_prompts
     test_programmatic_models
     test_programmatic_system_prompts
     test_programmatic_bad_auth
+    test_programmatic_json_camelcase
+    test_programmatic_json_verbose_camelcase
+    test_programmatic_stream_json_camelcase
 )
