@@ -6,8 +6,11 @@ collects all events into a turns array, and outputs a single JSON object
 that combines the final result with the full conversation history.
 """
 
+import hashlib
 import json
 import sys
+
+_CONTENT_TRUNCATE = 2000  # chars to keep before truncating
 
 
 def _extract_tool_uses(content):
@@ -36,26 +39,39 @@ def _extract_text(content):
     return out
 
 
+def _truncate_content(text: str) -> dict:
+    """Return content dict, truncating if over limit with sha256 + length."""
+    if len(text) <= _CONTENT_TRUNCATE:
+        return {"content": text}
+    sha = hashlib.sha256(text.encode()).hexdigest()
+    return {
+        "content": text[:_CONTENT_TRUNCATE],
+        "truncated": True,
+        "total_length": len(text),
+        "sha256": sha,
+    }
+
+
 def _extract_tool_results(content):
     """Extract tool_result entries from user message content."""
     out = []
     for block in content:
         if block.get("type") != "tool_result":
             continue
+        raw = block.get("content", "")
+        if isinstance(raw, str):
+            text = raw
+        elif isinstance(raw, list):
+            texts = [b.get("text", "") for b in raw if b.get("type") == "text"]
+            text = "\n".join(texts) if texts else str(raw)
+        else:
+            text = str(raw)
         entry = {
             "type": "tool_result",
             "tool_use_id": block.get("tool_use_id", ""),
             "is_error": block.get("is_error", False),
+            **_truncate_content(text),
         }
-        raw = block.get("content", "")
-        if isinstance(raw, str):
-            entry["content"] = raw
-        elif isinstance(raw, list):
-            # content can be a list of blocks
-            texts = [b.get("text", "") for b in raw if b.get("type") == "text"]
-            entry["content"] = "\n".join(texts) if texts else str(raw)
-        else:
-            entry["content"] = str(raw)
         out.append(entry)
     return out
 

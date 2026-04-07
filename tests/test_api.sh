@@ -260,6 +260,27 @@ test_api_json_verbose() {
     _api_stop "${API_CONTAINER}-jv"
 }
 
+# ── large output (>64KB line) doesn't crash ─────────────────────────────────
+
+test_api_large_output() {
+    _api_start "${API_CONTAINER}-large" || return 1
+
+    # generate a file >64KB and ask claude to read it — tool result will be one big JSON line
+    local big_file="/tmp/bigfile_$$.txt"
+    python3 -c "print('X' * 70000)" > "$big_file"
+    curl -sf -X PUT "$API_BASE/files/bigtest.txt" --data-binary @"$big_file" >/dev/null
+    rm -f "$big_file"
+
+    local out code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/run" \
+        -H "Content-Type: application/json" \
+        -d "{\"prompt\": \"read the file /workspaces/bigtest.txt and tell me how many characters it has\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
+    assert_eq "$code" "200" "large output does not crash (no 500)" || { _api_stop "${API_CONTAINER}-large"; return 1; }
+
+    echo "OK: api_large_output"
+    _api_stop "${API_CONTAINER}-large"
+}
+
 ALL_TESTS+=(
     test_api_endpoints
     test_api_run
@@ -272,4 +293,5 @@ ALL_TESTS+=(
     test_api_append_system_prompt
     test_api_continue_fallback
     test_api_json_verbose
+    test_api_large_output
 )

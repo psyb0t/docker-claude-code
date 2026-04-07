@@ -144,6 +144,9 @@ def _build_env():
     }
 
 
+_STREAM_LIMIT = 100 * 1024 * 1024  # 100MB — claude lines can be huge
+
+
 async def _stream(workspace: str, req: RunRequest):
     env = _build_env()
 
@@ -155,6 +158,7 @@ async def _stream(workspace: str, req: RunRequest):
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=workspace,
                 env=env,
+                limit=_STREAM_LIMIT,
             )
             busy_workspaces[workspace] = proc
             if proc.stdout:
@@ -170,6 +174,7 @@ async def _stream(workspace: str, req: RunRequest):
             stderr=asyncio.subprocess.STDOUT,
             cwd=workspace,
             env=env,
+            limit=_STREAM_LIMIT,
         )
         busy_workspaces[workspace] = proc
 
@@ -187,6 +192,7 @@ async def _stream(workspace: str, req: RunRequest):
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=workspace,
                 env=env,
+                limit=_STREAM_LIMIT,
             )
             busy_workspaces[workspace] = proc
             if proc.stdout:
