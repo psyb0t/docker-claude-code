@@ -16,7 +16,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
 RUN apt-get update && apt-get install -y \
     python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --no-cache-dir fastapi uvicorn python-telegram-bot pyyaml
+    && pip3 install --no-cache-dir fastapi uvicorn python-telegram-bot pyyaml mcp
 
 # docker (needed for docker-in-docker)
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \

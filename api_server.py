@@ -4,11 +4,13 @@ import asyncio
 import json
 import os
 import signal
+import time
+import uuid
 from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -144,6 +146,74 @@ def _build_env():
 
 
 _STREAM_LIMIT = 100 * 1024 * 1024  # 100MB — claude lines can be huge
+
+
+async def _run_claude_text(
+    prompt: str,
+    model: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    append_system_prompt: Optional[str] = None,
+    json_schema: Optional[str] = None,
+    workspace: Optional[str] = None,
+    no_continue: bool = True,
+    resume: Optional[str] = None,
+    effort: Optional[str] = None,
+) -> str:
+    """Run claude with --output-format json and return the result text."""
+    ws = _resolve_workspace(workspace)
+    if ws in busy_workspaces:
+        raise HTTPException(status_code=409, detail="workspace busy, retry later")
+    args = ["claude", "--dangerously-skip-permissions"]
+    if resume:
+        args += ["--resume", resume]
+    elif no_continue:
+        args.append("--no-continue")
+    args += ["-p", prompt, "--output-format", "json"]
+    if model:
+        args += ["--model", model]
+    if system_prompt:
+        args += ["--system-prompt", system_prompt]
+    append_parts = []
+    if SYSTEM_HINT:
+        append_parts.append(SYSTEM_HINT)
+    if append_system_prompt:
+        append_parts.append(append_system_prompt)
+    if append_parts:
+        args += ["--append-system-prompt", "\n".join(append_parts)]
+    if json_schema:
+        args += ["--json-schema", json_schema]
+    if effort:
+        args += ["--effort", effort]
+    env = _build_env()
+    output = b""
+    busy_workspaces[ws] = None  # type: ignore[assignment]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=ws,
+            env=env,
+            limit=_STREAM_LIMIT,
+        )
+        busy_workspaces[ws] = proc
+        if proc.stdout:
+            async for chunk in proc.stdout:
+                output += chunk
+        await proc.wait()
+    finally:
+        busy_workspaces.pop(ws, None)
+    text = output.decode(errors="replace")
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+            return parsed.get("result", text)
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return text
 
 
 async def _stream(workspace: str, req: RunRequest):
@@ -363,6 +433,345 @@ async def cancel_run(
     await proc.wait()
 
     return {"status": "ok", "workspace": ws}
+
+
+# ── OpenAI-compatible adapter ─────────────────────────────────────────────────
+
+
+class _OAIMessage(BaseModel):
+    role: str
+    content: str
+
+
+class _OAIRequest(BaseModel):
+    model: str = "claude"
+    messages: list[_OAIMessage]
+    stream: bool = False
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    reasoning_effort: Optional[str] = Field(None, alias="reasoningEffort")
+
+
+_OAI_MODELS = [
+    {"id": "haiku", "object": "model", "created": 0, "owned_by": "anthropic"},
+    {"id": "sonnet", "object": "model", "created": 0, "owned_by": "anthropic"},
+    {"id": "opus", "object": "model", "created": 0, "owned_by": "anthropic"},
+]
+
+
+def _oai_messages_to_claude(messages: list[_OAIMessage]) -> tuple[str, Optional[str]]:
+    system_parts: list[str] = []
+    conv: list[_OAIMessage] = []
+    for msg in messages:
+        if msg.role == "system":
+            system_parts.append(msg.content)
+        else:
+            conv.append(msg)
+    system_prompt = "\n".join(system_parts) if system_parts else None
+    if not conv:
+        return "", system_prompt
+    if len(conv) == 1:
+        return conv[0].content, system_prompt
+    parts = []
+    for msg in conv:
+        prefix = "User" if msg.role == "user" else "Assistant"
+        parts.append(f"{prefix}: {msg.content}")
+    return "\n\n".join(parts), system_prompt
+
+
+def _build_oai_run_args(
+    prompt: str,
+    model: str,
+    system_prompt: Optional[str],
+    streaming: bool,
+    effort: Optional[str] = None,
+    no_continue: bool = True,
+) -> list[str]:
+    args = ["claude", "--dangerously-skip-permissions"]
+    if no_continue:
+        args.append("--no-continue")
+    if streaming:
+        args += ["-p", prompt, "--output-format", "stream-json", "--verbose"]
+    else:
+        args += ["-p", prompt, "--output-format", "json"]
+    if model:
+        args += ["--model", model]
+    if system_prompt:
+        args += ["--system-prompt", system_prompt]
+    if SYSTEM_HINT:
+        args += ["--append-system-prompt", SYSTEM_HINT]
+    if effort:
+        args += ["--effort", effort]
+    return args
+
+
+@app.get("/openai/v1/models")
+async def openai_models(authorization: Optional[str] = Header(None)):
+    _check_auth(authorization)
+    return {"object": "list", "data": _OAI_MODELS}
+
+
+@app.post("/openai/v1/chat/completions")
+async def openai_chat_completions(
+    req: _OAIRequest,
+    authorization: Optional[str] = Header(None),
+    x_claude_workspace: Optional[str] = Header(None, alias="x-claude-workspace"),
+    x_claude_continue: Optional[str] = Header(None, alias="x-claude-continue"),
+):
+    _check_auth(authorization)
+
+    prompt, system_prompt = _oai_messages_to_claude(req.messages)
+    if not prompt:
+        raise HTTPException(status_code=400, detail="no user message provided")
+
+    no_continue = x_claude_continue is None or x_claude_continue.lower() not in ("1", "true", "yes")
+
+    cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    created = int(time.time())
+
+    if not req.stream:
+        text = await _run_claude_text(
+            prompt,
+            model=req.model,
+            system_prompt=system_prompt,
+            workspace=x_claude_workspace,
+            no_continue=no_continue,
+            effort=req.reasoning_effort,
+        )
+        return {
+            "id": cid,
+            "object": "chat.completion",
+            "created": created,
+            "model": req.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+
+    workspace = _resolve_workspace(x_claude_workspace)
+
+    if workspace in busy_workspaces:
+        raise HTTPException(status_code=409, detail="workspace busy, retry later")
+
+    args = _build_oai_run_args(prompt, req.model, system_prompt, True, req.reasoning_effort, no_continue)
+    env = _build_env()
+
+    busy_workspaces[workspace] = None  # type: ignore[assignment]
+
+    if req.stream:
+
+        async def _sse():
+            model_name = req.model
+            finish_reason = "stop"
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=workspace,
+                    env=env,
+                    limit=_STREAM_LIMIT,
+                )
+                busy_workspaces[workspace] = proc
+
+                def _chunk(delta: dict, fr=None) -> str:
+                    obj = {
+                        "id": cid, "object": "chat.completion.chunk",
+                        "created": created, "model": model_name,
+                        "choices": [{"index": 0, "delta": delta, "finish_reason": fr}],
+                    }
+                    return f"data: {json.dumps(obj)}\n\n"
+
+                yield _chunk({"role": "assistant", "content": ""})
+
+                if proc.stdout:
+                    async for raw in proc.stdout:
+                        line = raw.decode(errors="replace").strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        etype = event.get("type", "")
+                        if etype == "message_start":
+                            model_name = event.get("message", {}).get("model", model_name)
+                        elif etype == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                text = delta.get("text", "")
+                                if text:
+                                    yield _chunk({"content": text})
+                        elif etype == "message_delta":
+                            stop = event.get("delta", {}).get("stop_reason")
+                            if stop:
+                                finish_reason = stop
+
+                await proc.wait()
+                yield _chunk({}, finish_reason)
+                yield "data: [DONE]\n\n"
+            finally:
+                busy_workspaces.pop(workspace, None)
+
+        return StreamingResponse(_sse(), media_type="text/event-stream")
+
+
+# ── MCP server ────────────────────────────────────────────────────────────────
+
+from mcp.server.fastmcp import FastMCP  # noqa: E402
+
+
+class _MCPBearerAuth:
+    """Wrap an ASGI app with simple Bearer token auth."""
+
+    def __init__(self, asgi_app):
+        self._app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if not API_TOKEN or scope["type"] not in ("http", "websocket"):
+            await self._app(scope, receive, send)
+            return
+        headers = {k: v for k, v in scope.get("headers", [])}
+        auth = headers.get(b"authorization", b"").decode()
+        if auth != f"Bearer {API_TOKEN}":
+            await send({
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({"type": "http.response.body", "body": b'{"detail":"unauthorized"}'})
+            return
+        await self._app(scope, receive, send)
+
+
+_mcp = FastMCP("claude-code")
+
+
+@_mcp.tool()
+async def claude_run(
+    prompt: str,
+    model: str = "haiku",
+    system_prompt: str = "",
+    append_system_prompt: str = "",
+    json_schema: str = "",
+    workspace: str = "",
+    no_continue: bool = True,
+    resume: str = "",
+    effort: str = "",
+) -> str:
+    """Run a prompt/task through Claude Code (the agentic CLI) and return the text response.
+    Claude Code can read/write files, run shell commands, execute code, and use tools
+    in the workspace — it is not a simple chat model call.
+
+    IMPORTANT — preferred workflow for best performance:
+    Instead of embedding large file contents or context directly in the prompt, you should:
+    1. Use write_file to upload any input files, code, or context into the workspace first.
+    2. Write a short prompt that tells Claude Code to read those files and do the task.
+    3. Let Claude Code write its output/results to files in the workspace.
+    4. Use read_file or list_files to retrieve the output files.
+    Sending large content as prompt text is slow and wastes context. File-based workflows
+    are significantly faster and more reliable.
+
+    Args:
+        prompt: The prompt/task to send to Claude Code.
+        model: Model alias to use — haiku (fast/cheap), sonnet (balanced), opus (powerful).
+               Defaults to haiku.
+        system_prompt: Override the default system prompt entirely.
+        append_system_prompt: Text to append to the system prompt without replacing it.
+        json_schema: JSON Schema string for structured output — Claude will return JSON
+                     matching this schema.
+        workspace: Subpath under /workspaces to use as the working directory
+                   (e.g. "myproject" → /workspaces/myproject). Defaults to /workspaces.
+        no_continue: If True (default), start a fresh session. If False, continue the
+                     previous conversation in this workspace.
+        resume: Resume a specific session by session ID instead of starting fresh.
+        effort: Reasoning effort level — low, medium, high, or max.
+    """
+    return await _run_claude_text(
+        prompt,
+        model=model or None,
+        system_prompt=system_prompt or None,
+        append_system_prompt=append_system_prompt or None,
+        json_schema=json_schema or None,
+        workspace=workspace or None,
+        no_continue=no_continue,
+        resume=resume or None,
+        effort=effort or None,
+    )
+
+
+@_mcp.tool()
+async def list_files(path: str = "") -> str:
+    """List files and directories in the workspace.
+
+    Args:
+        path: Path relative to /workspaces to list. Defaults to the workspace root.
+              Returns a JSON object with a path and entries array, each entry having
+              name and type (file or dir).
+    """
+    full = _resolve_path(path) if path else os.path.realpath(ROOT_WORKSPACE)
+    if not os.path.exists(full):
+        return json.dumps({"error": f"not found: {path}"})
+    if os.path.isdir(full):
+        entries = []
+        for name in sorted(os.listdir(full)):
+            ep = os.path.join(full, name)
+            entries.append({"name": name, "type": "dir" if os.path.isdir(ep) else "file"})
+        return json.dumps({"path": path or "/", "entries": entries})
+    return json.dumps({"error": "not a directory"})
+
+
+@_mcp.tool()
+async def read_file(path: str) -> str:
+    """Read a file from the workspace and return its full text contents.
+
+    Args:
+        path: Path to the file relative to /workspaces (e.g. "myproject/src/main.py").
+    """
+    full = _resolve_path(path)
+    if not os.path.isfile(full):
+        return f"error: not found: {path}"
+    with open(full) as f:
+        return f.read()
+
+
+@_mcp.tool()
+async def write_file(path: str, content: str) -> str:
+    """Write content to a file in the workspace. Creates parent directories if needed.
+
+    Args:
+        path: Path to the file relative to /workspaces (e.g. "myproject/src/main.py").
+        content: Full text content to write. Overwrites the file if it already exists.
+    """
+    full = _resolve_path(path)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    with open(full, "w") as f:
+        f.write(content)
+    return json.dumps({"status": "ok", "path": path})
+
+
+@_mcp.tool()
+async def delete_file(path: str) -> str:
+    """Delete a file from the workspace. Only files can be deleted, not directories.
+
+    Args:
+        path: Path to the file relative to /workspaces (e.g. "myproject/old.py").
+    """
+    full = _resolve_path(path)
+    if not os.path.exists(full):
+        return json.dumps({"error": f"not found: {path}"})
+    if os.path.isdir(full):
+        return json.dumps({"error": "cannot delete directories"})
+    os.remove(full)
+    return json.dumps({"status": "ok", "path": path})
+
+
+app.mount("/mcp", _MCPBearerAuth(_mcp.http_app()))
 
 
 if __name__ == "__main__":

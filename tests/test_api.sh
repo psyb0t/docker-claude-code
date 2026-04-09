@@ -284,6 +284,211 @@ test_api_large_output() {
     _api_stop "${API_CONTAINER}-large"
 }
 
+# ── OpenAI-compatible adapter ─────────────────────────────────────────────────
+
+test_api_openai_models() {
+    _api_start "${API_CONTAINER}-oai-m" || return 1
+
+    local out
+    out=$(curl -sf "$API_BASE/openai/v1/models")
+    assert_contains "$out" '"object":"list"' "openai models returns list" || { _api_stop "${API_CONTAINER}-oai-m"; return 1; }
+    assert_contains "$out" '"haiku"' "openai models contains haiku" || { _api_stop "${API_CONTAINER}-oai-m"; return 1; }
+
+    echo "OK: api_openai_models"
+    _api_stop "${API_CONTAINER}-oai-m"
+}
+
+test_api_openai_chat() {
+    _api_start "${API_CONTAINER}-oai-c" || return 1
+
+    local body out
+    body="{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly OAIPONG and nothing else\"}]}"
+    out=$(post "$API_BASE/openai/v1/chat/completions" "$body")
+    assert_contains "$out" '"object":"chat.completion"' "openai chat returns completion object" || { _api_stop "${API_CONTAINER}-oai-c"; return 1; }
+    assert_contains "$out" '"choices"' "openai chat has choices" || { _api_stop "${API_CONTAINER}-oai-c"; return 1; }
+    assert_contains "$out" "OAIPONG" "openai chat contains response" || { _api_stop "${API_CONTAINER}-oai-c"; return 1; }
+
+    echo "OK: api_openai_chat"
+    _api_stop "${API_CONTAINER}-oai-c"
+}
+
+test_api_openai_chat_system() {
+    _api_start "${API_CONTAINER}-oai-s" || return 1
+
+    local body out
+    body="{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"system\",\"content\":\"Always respond with I AM A TURNIP.\"},{\"role\":\"user\",\"content\":\"what are you?\"}]}"
+    out=$(post "$API_BASE/openai/v1/chat/completions" "$body")
+    assert_contains "$out" "TURNIP" "openai chat system prompt applied" || { _api_stop "${API_CONTAINER}-oai-s"; return 1; }
+
+    echo "OK: api_openai_chat_system"
+    _api_stop "${API_CONTAINER}-oai-s"
+}
+
+test_api_openai_chat_stream() {
+    _api_start "${API_CONTAINER}-oai-st" || return 1
+
+    local body out
+    body="{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly STREAMOAI\"}],\"stream\":true}"
+    out=$(curl -sf -X POST "$API_BASE/openai/v1/chat/completions" \
+        -H "Content-Type: application/json" -d "$body")
+    assert_contains "$out" "data:" "openai stream returns SSE" || { _api_stop "${API_CONTAINER}-oai-st"; return 1; }
+    assert_contains "$out" "STREAMOAI" "openai stream contains response" || { _api_stop "${API_CONTAINER}-oai-st"; return 1; }
+    assert_contains "$out" "[DONE]" "openai stream ends with DONE" || { _api_stop "${API_CONTAINER}-oai-st"; return 1; }
+
+    echo "OK: api_openai_chat_stream"
+    _api_stop "${API_CONTAINER}-oai-st"
+}
+
+# ── OpenAI custom headers ──────────────────────────────────────────────────────
+
+test_api_openai_workspace_header() {
+    _api_start "${API_CONTAINER}-oai-ws" || return 1
+
+    # create a named workspace
+    curl -sf -X PUT "$API_BASE/files/oaiws/hint.txt" -d "workspace hint file" >/dev/null
+
+    local out
+    out=$(curl -sf -X POST "$API_BASE/openai/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "X-Claude-Workspace: oaiws" \
+        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly WSHEADER\"}]}")
+    assert_contains "$out" "WSHEADER" "openai X-Claude-Workspace header works" || { _api_stop "${API_CONTAINER}-oai-ws"; return 1; }
+
+    echo "OK: api_openai_workspace_header"
+    _api_stop "${API_CONTAINER}-oai-ws"
+}
+
+test_api_openai_continue_header() {
+    _api_start "${API_CONTAINER}-oai-cont" || return 1
+
+    # first call to establish session
+    post "$API_BASE/openai/v1/chat/completions" \
+        "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"remember the word CONTTEST\"}]}" >/dev/null
+
+    # second call with continue — should not 500 (continue may fail gracefully on fresh session)
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/openai/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "X-Claude-Continue: true" \
+        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"what word did I ask you to remember?\"}]}")
+    assert_eq "$code" "200" "openai X-Claude-Continue header does not crash" || { _api_stop "${API_CONTAINER}-oai-cont"; return 1; }
+
+    echo "OK: api_openai_continue_header"
+    _api_stop "${API_CONTAINER}-oai-cont"
+}
+
+test_api_openai_reasoning_effort() {
+    _api_start "${API_CONTAINER}-oai-eff" || return 1
+
+    local out
+    out=$(post "$API_BASE/openai/v1/chat/completions" \
+        "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly EFFORTOK\"}],\"reasoning_effort\":\"low\"}")
+    assert_contains "$out" "EFFORTOK" "openai reasoning_effort accepted" || { _api_stop "${API_CONTAINER}-oai-eff"; return 1; }
+
+    echo "OK: api_openai_reasoning_effort"
+    _api_stop "${API_CONTAINER}-oai-eff"
+}
+
+# ── MCP server ─────────────────────────────────────────────────────────────────
+
+test_api_mcp_init() {
+    _api_start "${API_CONTAINER}-mcp" || return 1
+
+    # MCP streamable HTTP: POST JSON-RPC initialize to /mcp
+    local out code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}')
+    assert_eq "$code" "200" "mcp initialize returns 200" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
+
+    echo "OK: api_mcp_init"
+    _api_stop "${API_CONTAINER}-mcp"
+}
+
+test_api_mcp_tools_list() {
+    _api_start "${API_CONTAINER}-mcp-tl" || return 1
+
+    local out
+    out=$(curl -sf -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
+    assert_contains "$out" "claude_run" "mcp tools/list has claude_run" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
+    assert_contains "$out" "list_files" "mcp tools/list has list_files" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
+    assert_contains "$out" "read_file" "mcp tools/list has read_file" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
+    assert_contains "$out" "write_file" "mcp tools/list has write_file" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
+    assert_contains "$out" "delete_file" "mcp tools/list has delete_file" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
+
+    echo "OK: api_mcp_tools_list"
+    _api_stop "${API_CONTAINER}-mcp-tl"
+}
+
+test_api_mcp_claude_run() {
+    _api_start "${API_CONTAINER}-mcp-run" || return 1
+
+    local out
+    out=$(curl -sf -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"claude_run","arguments":{"prompt":"respond with exactly MCPTEST","model":"'"$TEST_MODEL"'","no_continue":true}}}')
+    assert_contains "$out" "MCPTEST" "mcp claude_run returns response" || { _api_stop "${API_CONTAINER}-mcp-run"; return 1; }
+
+    echo "OK: api_mcp_claude_run"
+    _api_stop "${API_CONTAINER}-mcp-run"
+}
+
+test_api_mcp_file_ops() {
+    _api_start "${API_CONTAINER}-mcp-f" || return 1
+
+    local out
+
+    # write
+    out=$(curl -sf -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"mcptest.txt","content":"hello mcp"}}}')
+    assert_contains "$out" "ok" "mcp write_file ok" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
+
+    # read
+    out=$(curl -sf -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"mcptest.txt"}}}')
+    assert_contains "$out" "hello mcp" "mcp read_file returns content" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
+
+    # list
+    out=$(curl -sf -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_files","arguments":{}}}')
+    assert_contains "$out" "mcptest.txt" "mcp list_files shows written file" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
+
+    # delete
+    out=$(curl -sf -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"delete_file","arguments":{"path":"mcptest.txt"}}}')
+    assert_contains "$out" "ok" "mcp delete_file ok" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
+
+    echo "OK: api_mcp_file_ops"
+    _api_stop "${API_CONTAINER}-mcp-f"
+}
+
+test_api_mcp_auth() {
+    _api_start "${API_CONTAINER}-mcp-auth" -e "CLAUDE_MODE_API_TOKEN=mcpsecret" || return 1
+
+    # no token → 401
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
+    assert_eq "$code" "401" "mcp no token returns 401" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
+
+    # correct token → 200
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer mcpsecret" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
+    assert_eq "$code" "200" "mcp correct token returns 200" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
+
+    echo "OK: api_mcp_auth"
+    _api_stop "${API_CONTAINER}-mcp-auth"
+}
+
 ALL_TESTS+=(
     test_api_endpoints
     test_api_run
@@ -297,4 +502,8 @@ ALL_TESTS+=(
     test_api_continue_fallback
     test_api_json_verbose
     test_api_large_output
+    test_api_openai_models
+    test_api_openai_chat
+    test_api_openai_chat_system
+    test_api_openai_chat_stream
 )

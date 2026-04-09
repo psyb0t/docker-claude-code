@@ -500,6 +500,79 @@ curl -X DELETE "http://localhost:8080/files/myproject/src/old.py" -H "Authorizat
 
 All file paths are relative to `/workspaces`. Path traversal outside root is blocked.
 
+#### OpenAI-compatible endpoints
+
+The API also exposes an OpenAI-compatible adapter so tools like [LiteLLM](https://github.com/BerriAI/litellm), OpenAI SDKs, or anything that speaks `chat/completions` can connect directly.
+
+**`GET /openai/v1/models`** — list available models:
+
+```bash
+curl http://localhost:8080/openai/v1/models
+# {"object":"list","data":[{"id":"haiku",...},{"id":"sonnet",...},{"id":"opus",...}]}
+```
+
+**`POST /openai/v1/chat/completions`** — chat completions (streaming and non-streaming):
+
+```bash
+# non-streaming
+curl -X POST http://localhost:8080/openai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"haiku","messages":[{"role":"user","content":"hello"}]}'
+
+# streaming
+curl -X POST http://localhost:8080/openai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"haiku","messages":[{"role":"user","content":"hello"}],"stream":true}'
+```
+
+Use the same model aliases as the CLI (`haiku`, `sonnet`, `opus`). `system` role messages become `--system-prompt`. Multiple user/assistant turns are concatenated into a single prompt. Pass `reasoning_effort` (`low`/`medium`/`high`) to control effort — maps to claude's `--effort`. `temperature` and `max_tokens` are accepted but ignored.
+
+Custom headers for claude-specific behavior:
+
+| Header | Description |
+| ------ | ----------- |
+| `X-Claude-Workspace` | Workspace subpath under `/workspaces` |
+| `X-Claude-Continue` | Set to `1`/`true`/`yes` to continue the previous session |
+
+**LiteLLM example:**
+
+```python
+import litellm
+
+response = litellm.completion(
+    model="openai/haiku",
+    messages=[{"role": "user", "content": "hello"}],
+    api_base="http://localhost:8080/openai/v1",
+    api_key="your-secret-token",  # or any string if no token set
+)
+print(response.choices[0].message.content)
+```
+
+#### MCP server
+
+The API also exposes an MCP (Model Context Protocol) server at `/mcp` using streamable HTTP transport. Any MCP-compatible client (Claude Desktop, Claude Code, etc.) can connect to it.
+
+```json
+{
+  "mcpServers": {
+    "claude-code": {
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer your-secret-token" }
+    }
+  }
+}
+```
+
+Available tools:
+
+| Tool | Description |
+| ---- | ----------- |
+| `claude_run` | Run a prompt through Claude. Params: `prompt`, `model`, `system_prompt`, `append_system_prompt`, `json_schema`, `workspace`, `no_continue`, `resume`, `effort` |
+| `list_files` | List files/dirs in the workspace |
+| `read_file` | Read a file from the workspace |
+| `write_file` | Write a file to the workspace |
+| `delete_file` | Delete a file from the workspace |
+
 ### Telegram mode
 
 Talk to Claude from Telegram. Each chat gets its own workspace and settings. Send text, files, photos, videos, voice messages. Run shell commands. Get files back.
