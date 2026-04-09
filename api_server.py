@@ -2,10 +2,12 @@
 
 import asyncio
 import json
+import logging
 import os
 import signal
 import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Optional, Union
 
 import uvicorn
@@ -13,11 +15,29 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+log = logging.getLogger("api")
+_debug = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+
+
+class _JsonFormatter(logging.Formatter):
+    def format(self, record):
+        return json.dumps({
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "func": record.funcName,
+            "line": record.lineno,
+            "file": record.filename,
+            "msg": record.getMessage(),
+        })
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_JsonFormatter())
+logging.root.handlers = [_handler]
+logging.root.setLevel(logging.DEBUG if _debug else logging.INFO)
 
 _mcp_lifespan_cm = None
-
-
-from contextlib import asynccontextmanager  # noqa: E402
 
 
 @asynccontextmanager
@@ -87,6 +107,7 @@ def _check_auth(authorization: Optional[str]):
     if not API_TOKEN:
         return
     if not authorization or authorization != f"Bearer {API_TOKEN}":
+        log.warning("auth failed: invalid or missing token")
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
@@ -178,6 +199,7 @@ async def _run_claude_text(
     ws = _resolve_workspace(workspace)
     if ws in busy_workspaces:
         raise HTTPException(status_code=409, detail="workspace busy, retry later")
+    log.debug("_run_claude_text ws=%s model=%s continue=%s", ws, model, not no_continue)
     args = ["claude", "--dangerously-skip-permissions"]
     if resume:
         args += ["--resume", resume]
@@ -226,9 +248,12 @@ async def _run_claude_text(
         try:
             parsed = json.loads(line)
             usage = parsed.get("usage", {})
-            return parsed.get("result", text), usage
+            result = parsed.get("result", text)
+            log.debug("_run_claude_text done, result=%d chars", len(result))
+            return result, usage
         except (json.JSONDecodeError, ValueError):
             continue
+    log.warning("_run_claude_text: no JSON result found in output (%d bytes)", len(output))
     return text, {}
 
 
@@ -297,6 +322,8 @@ async def run(
     _check_auth(authorization)
 
     workspace = _resolve_workspace(req.workspace)
+    log.info("POST /run workspace=%s model=%s format=%s no_continue=%s",
+             workspace, req.model, req.output_format, req.no_continue)
 
     if not os.path.isdir(workspace):
         raise HTTPException(status_code=400, detail=f"workspace not found: {workspace}")
@@ -498,6 +525,7 @@ def _save_oai_image(url: str) -> Optional[str]:
         try:
             raw = base64.b64decode(b64)
         except Exception:
+            log.warning("failed to decode base64 image data")
             return None
         ext = mimetypes.guess_extension(mime) or ".bin"
         _oai_upload_counter += 1
@@ -505,6 +533,7 @@ def _save_oai_image(url: str) -> Optional[str]:
         fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
         with open(fpath, "wb") as f:
             f.write(raw)
+        log.info("saved base64 image: %s (%d bytes, %s)", fname, len(raw), mime)
         return f"_oai_uploads/{fname}"
 
     if url.startswith(("http://", "https://")):
@@ -515,6 +544,7 @@ def _save_oai_image(url: str) -> Optional[str]:
                 mime = content_type.split(";")[0].strip()
                 raw = resp.read(50 * 1024 * 1024)  # 50MB max
         except Exception:
+            log.warning("failed to download image from %s", url[:200])
             return None
         ext = mimetypes.guess_extension(mime) or os.path.splitext(url.split("?")[0])[1] or ".bin"
         _oai_upload_counter += 1
@@ -522,12 +552,14 @@ def _save_oai_image(url: str) -> Optional[str]:
         fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
         with open(fpath, "wb") as f:
             f.write(raw)
+        log.info("downloaded image: %s (%d bytes, %s)", fname, len(raw), mime)
         return f"_oai_uploads/{fname}"
 
     # raw base64 fallback
     try:
         raw = base64.b64decode(url)
     except Exception:
+        log.warning("failed to decode raw base64 content")
         return None
     _oai_upload_counter += 1
     fname = f"upload_{_oai_upload_counter}.bin"
@@ -589,6 +621,7 @@ def _oai_messages_to_claude(messages: list[_OAIMessage]) -> tuple[str, Optional[
 
     # single user message with simple text — just use it directly as the prompt
     if len(conv) == 1 and isinstance(conv[0]["content"], str):
+        log.debug("openai: single text message, using direct prompt")
         return conv[0]["content"], system_prompt
 
     # multi-turn or multimodal — write conversation to file, prompt claude to read it
@@ -597,6 +630,7 @@ def _oai_messages_to_claude(messages: list[_OAIMessage]) -> tuple[str, Optional[
     conv_path = os.path.join(ROOT_WORKSPACE, conv_file)
     with open(conv_path, "w") as f:
         json.dump(conv, f, indent=2)
+    log.info("openai: multi-turn (%d msgs), wrote conversation to %s", len(conv), conv_file)
     prompt = (
         f"Read the conversation in {conv_file}. "
         "It contains a JSON array of messages with roles (user/assistant). "
@@ -662,6 +696,10 @@ async def openai_chat_completions(
     model = req.model.split("/", 1)[-1] if "/" in req.model else req.model
 
     no_continue = x_claude_continue is None or x_claude_continue.lower() not in ("1", "true", "yes")
+
+    log.info("POST /openai/v1/chat/completions model=%s stream=%s msgs=%d workspace=%s continue=%s",
+             model, req.stream, len(req.messages), x_claude_workspace, not no_continue)
+    log.debug("openai prompt: %s", prompt[:200])
 
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
@@ -814,6 +852,7 @@ async def claude_run(
         resume: Resume a specific session by session ID instead of starting fresh.
         effort: Reasoning effort level — low, medium, high, or max.
     """
+    log.info("MCP claude_run model=%s workspace=%s", model, workspace or "(default)")
     text, _ = await _run_claude_text(
         prompt,
         model=model or None,
@@ -923,6 +962,7 @@ class _MCPWithAuth:
             await self._app(scope, receive, send)
             return
         if not _mcp_auth_check(scope):
+            log.warning("MCP auth failed: invalid or missing token")
             await send({
                 "type": "http.response.start",
                 "status": 401,
@@ -930,6 +970,7 @@ class _MCPWithAuth:
             })
             await send({"type": "http.response.body", "body": b'{"detail":"unauthorized"}'})
             return
+        log.debug("MCP request: %s %s", scope.get("method", "?"), scope.get("path", "?"))
         await self._app(scope, receive, send)
 
 
@@ -937,4 +978,5 @@ app.mount("/mcp", _MCPWithAuth(_mcp_app))
 
 
 if __name__ == "__main__":
+    log.info("starting api server on port %d (auth=%s, debug=%s)", PORT, bool(API_TOKEN), _debug)
     uvicorn.run(app, host="0.0.0.0", port=PORT)
