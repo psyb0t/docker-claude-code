@@ -126,7 +126,6 @@ test_api_file_ops() {
 AUTH_CASES=(
     "no token|/status||401"
     "wrong token|/status|Bearer wrong|401"
-    "correct token|/status|Bearer secret|200"
     "health no auth|/health||200"
 )
 
@@ -145,7 +144,12 @@ test_api_auth() {
         assert_eq "$code" "$expected_code" "auth: $label" || { _api_stop "${API_CONTAINER}-auth"; return 1; }
     done
 
-    echo "OK: api_auth (${#AUTH_CASES[@]} cases)"
+    # correct token — verify response body has actual data
+    local out
+    out=$(curl -sf -H "Authorization: Bearer secret" "$API_BASE/status")
+    assert_contains "$out" "busy_workspaces" "auth: correct token returns status body" || { _api_stop "${API_CONTAINER}-auth"; return 1; }
+
+    echo "OK: api_auth ($(( ${#AUTH_CASES[@]} + 1 )) cases)"
     _api_stop "${API_CONTAINER}-auth"
 }
 
@@ -274,11 +278,11 @@ test_api_large_output() {
     curl -sf -X PUT "$API_BASE/files/bigtest.txt" --data-binary @"$big_file" >/dev/null
     rm -f "$big_file"
 
-    local out code
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/run" \
-        -H "Content-Type: application/json" \
-        -d "{\"prompt\": \"read the file /workspaces/bigtest.txt and tell me how many characters it has\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
-    assert_eq "$code" "200" "large output does not crash (no 500)" || { _api_stop "${API_CONTAINER}-large"; return 1; }
+    local out
+    out=$(post "$API_BASE/run" \
+        "{\"prompt\": \"read the file /workspaces/bigtest.txt and tell me how many characters it has\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
+    assert_contains "$out" "result" "large output returns valid json with result" || { _api_stop "${API_CONTAINER}-large"; return 1; }
+    assert_contains "$out" "70" "large output mentions character count" || { _api_stop "${API_CONTAINER}-large"; return 1; }
 
     echo "OK: api_large_output"
     _api_stop "${API_CONTAINER}-large"
@@ -344,15 +348,16 @@ test_api_openai_chat_stream() {
 test_api_openai_workspace_header() {
     _api_start "${API_CONTAINER}-oai-ws" || return 1
 
-    # create a named workspace
-    curl -sf -X PUT "$API_BASE/files/oaiws/hint.txt" -d "workspace hint file" >/dev/null
+    # create a file in a named workspace with a unique marker
+    curl -sf -X PUT "$API_BASE/files/oaiws/marker.txt" -d "WSMARKER7742" >/dev/null
 
+    # ask claude to read that file — proves it's running in the oaiws workspace
     local out
     out=$(curl -sf -X POST "$API_BASE/openai/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -H "X-Claude-Workspace: oaiws" \
-        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly WSHEADER\"}]}")
-    assert_contains "$out" "WSHEADER" "openai X-Claude-Workspace header works" || { _api_stop "${API_CONTAINER}-oai-ws"; return 1; }
+        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"read marker.txt in the current directory and respond with its exact contents\"}]}")
+    assert_contains "$out" "WSMARKER7742" "openai workspace header routes to correct dir" || { _api_stop "${API_CONTAINER}-oai-ws"; return 1; }
 
     echo "OK: api_openai_workspace_header"
     _api_stop "${API_CONTAINER}-oai-ws"
@@ -364,14 +369,15 @@ test_api_openai_continue_header() {
     # first call to establish session
     post "$API_BASE/openai/v1/chat/completions" \
         "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"remember the word CONTTEST\"}]}" >/dev/null
+    sleep 2
 
-    # second call with continue — should not 500 (continue may fail gracefully on fresh session)
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/openai/v1/chat/completions" \
+    # second call with continue — should recall context from first call
+    local out
+    out=$(curl -sf -X POST "$API_BASE/openai/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -H "X-Claude-Continue: true" \
-        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"what word did I ask you to remember?\"}]}")
-    assert_eq "$code" "200" "openai X-Claude-Continue header does not crash" || { _api_stop "${API_CONTAINER}-oai-cont"; return 1; }
+        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"what word did I ask you to remember? reply with just the word\"}]}")
+    assert_contains "$out" "CONTTEST" "openai X-Claude-Continue recalls context" || { _api_stop "${API_CONTAINER}-oai-cont"; return 1; }
 
     echo "OK: api_openai_continue_header"
     _api_stop "${API_CONTAINER}-oai-cont"
@@ -414,11 +420,13 @@ _mcp_call() {
 test_api_mcp_init() {
     _api_start "${API_CONTAINER}-mcp" || return 1
 
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp/" \
+    local out
+    out=$(curl -s -D - -X POST "$API_BASE/mcp/" \
         -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
         -d "$_MCP_INIT")
-    assert_eq "$code" "200" "mcp initialize returns 200" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
+    assert_contains "$out" "mcp-session-id" "mcp initialize returns session id header" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
+    assert_contains "$out" "protocolVersion" "mcp initialize returns protocol version" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
+    assert_contains "$out" "claude-code" "mcp initialize returns server name" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
 
     echo "OK: api_mcp_init"
     _api_stop "${API_CONTAINER}-mcp"
@@ -497,18 +505,19 @@ test_api_mcp_auth() {
         -d "$_MCP_INIT")
     assert_eq "$code" "401" "mcp no token returns 401" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
 
-    # correct token via header → 200
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp/" \
+    # correct token via header — verify response has protocol data
+    local out
+    out=$(curl -s -D - -X POST "$API_BASE/mcp/" \
         -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
         -H "Authorization: Bearer mcpsecret" \
         -d "$_MCP_INIT")
-    assert_eq "$code" "200" "mcp correct token via header returns 200" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
+    assert_contains "$out" "protocolVersion" "mcp auth header returns protocol data" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
 
-    # correct token via query param → 200
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp/?apiToken=mcpsecret" \
+    # correct token via query param — verify response has protocol data
+    out=$(curl -s -D - -X POST "$API_BASE/mcp/?apiToken=mcpsecret" \
         -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
         -d "$_MCP_INIT")
-    assert_eq "$code" "200" "mcp correct token via query param returns 200" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
+    assert_contains "$out" "protocolVersion" "mcp auth query param returns protocol data" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
 
     echo "OK: api_mcp_auth"
     _api_stop "${API_CONTAINER}-mcp-auth"
@@ -531,4 +540,12 @@ ALL_TESTS+=(
     test_api_openai_chat
     test_api_openai_chat_system
     test_api_openai_chat_stream
+    test_api_openai_workspace_header
+    test_api_openai_continue_header
+    test_api_openai_reasoning_effort
+    test_api_mcp_init
+    test_api_mcp_tools_list
+    test_api_mcp_claude_run
+    test_api_mcp_file_ops
+    test_api_mcp_auth
 )
