@@ -391,14 +391,33 @@ test_api_openai_reasoning_effort() {
 
 # ── MCP server ─────────────────────────────────────────────────────────────────
 
+_MCP_ACCEPT="Accept: application/json, text/event-stream"
+_MCP_INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+
+# init MCP session: sets MCP_SESSION var
+_mcp_init() {
+    local url="$1"
+    MCP_SESSION=$(curl -s -D - -X POST "$url" \
+        -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
+        -d "$_MCP_INIT" | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r\n')
+}
+
+# send MCP JSON-RPC with session
+_mcp_call() {
+    local url="$1" data="$2"
+    curl -s -X POST "$url" \
+        -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
+        -H "mcp-session-id: $MCP_SESSION" \
+        -d "$data"
+}
+
 test_api_mcp_init() {
     _api_start "${API_CONTAINER}-mcp" || return 1
 
-    # MCP streamable HTTP: POST JSON-RPC initialize to /mcp
-    local out code
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}')
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp/" \
+        -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
+        -d "$_MCP_INIT")
     assert_eq "$code" "200" "mcp initialize returns 200" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
 
     echo "OK: api_mcp_init"
@@ -408,10 +427,11 @@ test_api_mcp_init() {
 test_api_mcp_tools_list() {
     _api_start "${API_CONTAINER}-mcp-tl" || return 1
 
+    _mcp_init "$API_BASE/mcp/"
+    assert_not_empty "$MCP_SESSION" "mcp session id" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
+
     local out
-    out=$(curl -sf -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
+    out=$(_mcp_call "$API_BASE/mcp/" '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
     assert_contains "$out" "claude_run" "mcp tools/list has claude_run" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
     assert_contains "$out" "list_files" "mcp tools/list has list_files" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
     assert_contains "$out" "read_file" "mcp tools/list has read_file" || { _api_stop "${API_CONTAINER}-mcp-tl"; return 1; }
@@ -425,10 +445,11 @@ test_api_mcp_tools_list() {
 test_api_mcp_claude_run() {
     _api_start "${API_CONTAINER}-mcp-run" || return 1
 
+    _mcp_init "$API_BASE/mcp/"
+
     local out
-    out=$(curl -sf -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"claude_run","arguments":{"prompt":"respond with exactly MCPTEST","model":"'"$TEST_MODEL"'","no_continue":true}}}')
+    out=$(_mcp_call "$API_BASE/mcp/" \
+        '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"claude_run","arguments":{"prompt":"respond with exactly MCPTEST","model":"'"$TEST_MODEL"'","no_continue":true}}}')
     assert_contains "$out" "MCPTEST" "mcp claude_run returns response" || { _api_stop "${API_CONTAINER}-mcp-run"; return 1; }
 
     echo "OK: api_mcp_claude_run"
@@ -438,30 +459,28 @@ test_api_mcp_claude_run() {
 test_api_mcp_file_ops() {
     _api_start "${API_CONTAINER}-mcp-f" || return 1
 
+    _mcp_init "$API_BASE/mcp/"
+
     local out
 
     # write
-    out=$(curl -sf -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"mcptest.txt","content":"hello mcp"}}}')
+    out=$(_mcp_call "$API_BASE/mcp/" \
+        '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"mcptest.txt","content":"hello mcp"}}}')
     assert_contains "$out" "ok" "mcp write_file ok" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
 
     # read
-    out=$(curl -sf -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"mcptest.txt"}}}')
+    out=$(_mcp_call "$API_BASE/mcp/" \
+        '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"mcptest.txt"}}}')
     assert_contains "$out" "hello mcp" "mcp read_file returns content" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
 
     # list
-    out=$(curl -sf -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_files","arguments":{}}}')
+    out=$(_mcp_call "$API_BASE/mcp/" \
+        '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_files","arguments":{}}}')
     assert_contains "$out" "mcptest.txt" "mcp list_files shows written file" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
 
     # delete
-    out=$(curl -sf -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"delete_file","arguments":{"path":"mcptest.txt"}}}')
+    out=$(_mcp_call "$API_BASE/mcp/" \
+        '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"delete_file","arguments":{"path":"mcptest.txt"}}}')
     assert_contains "$out" "ok" "mcp delete_file ok" || { _api_stop "${API_CONTAINER}-mcp-f"; return 1; }
 
     echo "OK: api_mcp_file_ops"
@@ -473,17 +492,23 @@ test_api_mcp_auth() {
 
     # no token → 401
     local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp/" \
+        -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
+        -d "$_MCP_INIT")
     assert_eq "$code" "401" "mcp no token returns 401" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
 
-    # correct token → 200
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp" \
-        -H "Content-Type: application/json" \
+    # correct token via header → 200
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp/" \
+        -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
         -H "Authorization: Bearer mcpsecret" \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
-    assert_eq "$code" "200" "mcp correct token returns 200" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
+        -d "$_MCP_INIT")
+    assert_eq "$code" "200" "mcp correct token via header returns 200" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
+
+    # correct token via query param → 200
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/mcp/?apiToken=mcpsecret" \
+        -H "Content-Type: application/json" -H "$_MCP_ACCEPT" \
+        -d "$_MCP_INIT")
+    assert_eq "$code" "200" "mcp correct token via query param returns 200" || { _api_stop "${API_CONTAINER}-mcp-auth"; return 1; }
 
     echo "OK: api_mcp_auth"
     _api_stop "${API_CONTAINER}-mcp-auth"

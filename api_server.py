@@ -14,7 +14,22 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 
-app = FastAPI()
+_mcp_lifespan_cm = None
+
+
+from contextlib import asynccontextmanager  # noqa: E402
+
+
+@asynccontextmanager
+async def _lifespan(app):
+    if _mcp_lifespan_cm:
+        async with _mcp_lifespan_cm:
+            yield
+    else:
+        yield
+
+
+app = FastAPI(lifespan=_lifespan)
 
 
 def _to_camel(name: str) -> str:
@@ -166,8 +181,8 @@ async def _run_claude_text(
     args = ["claude", "--dangerously-skip-permissions"]
     if resume:
         args += ["--resume", resume]
-    elif no_continue:
-        args.append("--no-continue")
+    elif not no_continue:
+        args.append("--continue")
     args += ["-p", prompt, "--output-format", "json"]
     if model:
         args += ["--model", model]
@@ -488,8 +503,8 @@ def _build_oai_run_args(
     no_continue: bool = True,
 ) -> list[str]:
     args = ["claude", "--dangerously-skip-permissions"]
-    if no_continue:
-        args.append("--no-continue")
+    if not no_continue:
+        args.append("--continue")
     if streaming:
         args += ["-p", prompt, "--output-format", "stream-json", "--verbose"]
     else:
@@ -602,18 +617,20 @@ async def openai_chat_completions(
                         except json.JSONDecodeError:
                             continue
                         etype = event.get("type", "")
-                        if etype == "message_start":
-                            model_name = event.get("message", {}).get("model", model_name)
-                        elif etype == "content_block_delta":
-                            delta = event.get("delta", {})
-                            if delta.get("type") == "text_delta":
-                                text = delta.get("text", "")
-                                if text:
-                                    yield _chunk({"content": text})
-                        elif etype == "message_delta":
-                            stop = event.get("delta", {}).get("stop_reason")
-                            if stop:
-                                finish_reason = stop
+                        if etype == "assistant":
+                            msg = event.get("message", {})
+                            m = msg.get("model")
+                            if m:
+                                model_name = m
+                            for block in msg.get("content", []):
+                                if block.get("type") == "text":
+                                    text = block.get("text", "")
+                                    if text:
+                                        yield _chunk({"content": text})
+                        elif etype == "result":
+                            sr = event.get("stop_reason", "")
+                            if sr:
+                                finish_reason = sr
 
                 await proc.wait()
                 yield _chunk({}, finish_reason)
@@ -628,31 +645,7 @@ async def openai_chat_completions(
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-
-class _MCPBearerAuth:
-    """Wrap an ASGI app with simple Bearer token auth."""
-
-    def __init__(self, asgi_app):
-        self._app = asgi_app
-
-    async def __call__(self, scope, receive, send):
-        if not API_TOKEN or scope["type"] not in ("http", "websocket"):
-            await self._app(scope, receive, send)
-            return
-        headers = {k: v for k, v in scope.get("headers", [])}
-        auth = headers.get(b"authorization", b"").decode()
-        if auth != f"Bearer {API_TOKEN}":
-            await send({
-                "type": "http.response.start",
-                "status": 401,
-                "headers": [[b"content-type", b"application/json"]],
-            })
-            await send({"type": "http.response.body", "body": b'{"detail":"unauthorized"}'})
-            return
-        await self._app(scope, receive, send)
-
-
-_mcp = FastMCP("claude-code")
+_mcp = FastMCP("claude-code", streamable_http_path="/")
 
 
 @_mcp.tool()
@@ -774,7 +767,46 @@ async def delete_file(path: str) -> str:
     return json.dumps({"status": "ok", "path": path})
 
 
-app.mount("/mcp", _MCPBearerAuth(_mcp.http_app()))
+_mcp_app = _mcp.streamable_http_app()
+_mcp_lifespan_cm = _mcp_app.router.lifespan_context(_mcp_app)
+
+
+def _mcp_auth_check(scope) -> bool:
+    if not API_TOKEN:
+        return True
+    headers = {k: v for k, v in scope.get("headers", [])}
+    auth = headers.get(b"authorization", b"").decode()
+    if auth == f"Bearer {API_TOKEN}":
+        return True
+    qs = scope.get("query_string", b"").decode()
+    for part in qs.split("&"):
+        if part.startswith("apiToken=") and part[9:] == API_TOKEN:
+            return True
+    return False
+
+
+class _MCPWithAuth:
+    """Route /mcp requests to the MCP ASGI handler with auth."""
+
+    def __init__(self, mcp_app):
+        self._app = mcp_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self._app(scope, receive, send)
+            return
+        if not _mcp_auth_check(scope):
+            await send({
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({"type": "http.response.body", "body": b'{"detail":"unauthorized"}'})
+            return
+        await self._app(scope, receive, send)
+
+
+app.mount("/mcp", _MCPWithAuth(_mcp_app))
 
 
 if __name__ == "__main__":
