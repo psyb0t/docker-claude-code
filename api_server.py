@@ -6,7 +6,7 @@ import os
 import signal
 import time
 import uuid
-from typing import Optional
+from typing import Any, Optional, Union
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request
@@ -173,8 +173,8 @@ async def _run_claude_text(
     no_continue: bool = True,
     resume: Optional[str] = None,
     effort: Optional[str] = None,
-) -> str:
-    """Run claude with --output-format json and return the result text."""
+) -> tuple[str, dict]:
+    """Run claude with --output-format json. Returns (result_text, usage_dict)."""
     ws = _resolve_workspace(workspace)
     if ws in busy_workspaces:
         raise HTTPException(status_code=409, detail="workspace busy, retry later")
@@ -225,10 +225,11 @@ async def _run_claude_text(
             continue
         try:
             parsed = json.loads(line)
-            return parsed.get("result", text)
+            usage = parsed.get("usage", {})
+            return parsed.get("result", text), usage
         except (json.JSONDecodeError, ValueError):
             continue
-    return text
+    return text, {}
 
 
 async def _stream(workspace: str, req: RunRequest):
@@ -455,10 +456,12 @@ async def cancel_run(
 
 class _OAIMessage(BaseModel):
     role: str
-    content: str
+    content: Union[str, list[Any]]
 
 
 class _OAIRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     model: str = "claude"
     messages: list[_OAIMessage]
     stream: bool = False
@@ -474,24 +477,133 @@ _OAI_MODELS = [
 ]
 
 
+import base64  # noqa: E402
+import mimetypes  # noqa: E402
+
+_OAI_UPLOAD_DIR = os.path.join(ROOT_WORKSPACE, "_oai_uploads")
+_oai_upload_counter = 0
+
+
+import urllib.request  # noqa: E402
+
+
+def _save_oai_image(url: str) -> Optional[str]:
+    """Save an image from a data: URL, raw base64, or HTTP(S) URL to the workspace."""
+    global _oai_upload_counter
+    os.makedirs(_OAI_UPLOAD_DIR, exist_ok=True)
+
+    if url.startswith("data:"):
+        header, _, b64 = url.partition(",")
+        mime = header.split(";")[0].replace("data:", "")
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            return None
+        ext = mimetypes.guess_extension(mime) or ".bin"
+        _oai_upload_counter += 1
+        fname = f"upload_{_oai_upload_counter}{ext}"
+        fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
+        with open(fpath, "wb") as f:
+            f.write(raw)
+        return f"_oai_uploads/{fname}"
+
+    if url.startswith(("http://", "https://")):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "claude-code-api"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                content_type = resp.headers.get("Content-Type", "application/octet-stream")
+                mime = content_type.split(";")[0].strip()
+                raw = resp.read(50 * 1024 * 1024)  # 50MB max
+        except Exception:
+            return None
+        ext = mimetypes.guess_extension(mime) or os.path.splitext(url.split("?")[0])[1] or ".bin"
+        _oai_upload_counter += 1
+        fname = f"upload_{_oai_upload_counter}{ext}"
+        fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
+        with open(fpath, "wb") as f:
+            f.write(raw)
+        return f"_oai_uploads/{fname}"
+
+    # raw base64 fallback
+    try:
+        raw = base64.b64decode(url)
+    except Exception:
+        return None
+    _oai_upload_counter += 1
+    fname = f"upload_{_oai_upload_counter}.bin"
+    fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
+    with open(fpath, "wb") as f:
+        f.write(raw)
+    return f"_oai_uploads/{fname}"
+
+
+def _oai_resolve_content(content: Union[str, list[Any]]) -> Union[str, list[Any]]:
+    """Resolve multimodal content: download/decode images, replace URLs with local paths."""
+    if isinstance(content, str):
+        return content
+    resolved: list[Any] = []
+    for block in content:
+        if isinstance(block, str):
+            resolved.append(block)
+            continue
+        if not isinstance(block, dict):
+            resolved.append(block)
+            continue
+        if block.get("type") == "image_url":
+            url = block.get("image_url", {}).get("url", "")
+            if not url:
+                continue
+            saved = _save_oai_image(url)
+            if saved:
+                resolved.append({"type": "text", "text": f"[See image: {saved}]"})
+            continue
+        resolved.append(block)
+    return resolved
+
+
+def _oai_content_text_only(content: Union[str, list[Any]]) -> str:
+    """Extract just the text from content (for system prompt extraction)."""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+    return "\n".join(parts)
+
+
 def _oai_messages_to_claude(messages: list[_OAIMessage]) -> tuple[str, Optional[str]]:
     system_parts: list[str] = []
-    conv: list[_OAIMessage] = []
+    conv: list[dict] = []
     for msg in messages:
         if msg.role == "system":
-            system_parts.append(msg.content)
-        else:
-            conv.append(msg)
+            system_parts.append(_oai_content_text_only(msg.content))
+            continue
+        conv.append({"role": msg.role, "content": _oai_resolve_content(msg.content)})
+
     system_prompt = "\n".join(system_parts) if system_parts else None
     if not conv:
         return "", system_prompt
-    if len(conv) == 1:
-        return conv[0].content, system_prompt
-    parts = []
-    for msg in conv:
-        prefix = "User" if msg.role == "user" else "Assistant"
-        parts.append(f"{prefix}: {msg.content}")
-    return "\n\n".join(parts), system_prompt
+
+    # single user message with simple text — just use it directly as the prompt
+    if len(conv) == 1 and isinstance(conv[0]["content"], str):
+        return conv[0]["content"], system_prompt
+
+    # multi-turn or multimodal — write conversation to file, prompt claude to read it
+    os.makedirs(_OAI_UPLOAD_DIR, exist_ok=True)
+    conv_file = f"_oai_uploads/conv_{uuid.uuid4().hex[:8]}.json"
+    conv_path = os.path.join(ROOT_WORKSPACE, conv_file)
+    with open(conv_path, "w") as f:
+        json.dump(conv, f, indent=2)
+    prompt = (
+        f"Read the conversation in {conv_file}. "
+        "It contains a JSON array of messages with roles (user/assistant). "
+        "Any file paths in [See image: ...] blocks refer to files in the workspace. "
+        "Respond to the last user message in the conversation."
+    )
+    return prompt, system_prompt
 
 
 def _build_oai_run_args(
@@ -501,6 +613,7 @@ def _build_oai_run_args(
     streaming: bool,
     effort: Optional[str] = None,
     no_continue: bool = True,
+    append_system_prompt: Optional[str] = None,
 ) -> list[str]:
     args = ["claude", "--dangerously-skip-permissions"]
     if not no_continue:
@@ -513,8 +626,13 @@ def _build_oai_run_args(
         args += ["--model", model]
     if system_prompt:
         args += ["--system-prompt", system_prompt]
+    append_parts = []
     if SYSTEM_HINT:
-        args += ["--append-system-prompt", SYSTEM_HINT]
+        append_parts.append(SYSTEM_HINT)
+    if append_system_prompt:
+        append_parts.append(append_system_prompt)
+    if append_parts:
+        args += ["--append-system-prompt", "\n".join(append_parts)]
     if effort:
         args += ["--effort", effort]
     return args
@@ -532,6 +650,7 @@ async def openai_chat_completions(
     authorization: Optional[str] = Header(None),
     x_claude_workspace: Optional[str] = Header(None, alias="x-claude-workspace"),
     x_claude_continue: Optional[str] = Header(None, alias="x-claude-continue"),
+    x_claude_append_system_prompt: Optional[str] = Header(None, alias="x-claude-append-system-prompt"),
 ):
     _check_auth(authorization)
 
@@ -548,14 +667,17 @@ async def openai_chat_completions(
     created = int(time.time())
 
     if not req.stream:
-        text = await _run_claude_text(
+        text, usage = await _run_claude_text(
             prompt,
             model=model,
             system_prompt=system_prompt,
+            append_system_prompt=x_claude_append_system_prompt,
             workspace=x_claude_workspace,
             no_continue=no_continue,
             effort=req.reasoning_effort,
         )
+        in_tok = usage.get("input_tokens", 0) or usage.get("inputTokens", 0)
+        out_tok = usage.get("output_tokens", 0) or usage.get("outputTokens", 0)
         return {
             "id": cid,
             "object": "chat.completion",
@@ -568,7 +690,11 @@ async def openai_chat_completions(
                     "finish_reason": "stop",
                 }
             ],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "usage": {
+                "prompt_tokens": in_tok,
+                "completion_tokens": out_tok,
+                "total_tokens": in_tok + out_tok,
+            },
         }
 
     workspace = _resolve_workspace(x_claude_workspace)
@@ -576,69 +702,69 @@ async def openai_chat_completions(
     if workspace in busy_workspaces:
         raise HTTPException(status_code=409, detail="workspace busy, retry later")
 
-    args = _build_oai_run_args(prompt, model, system_prompt, True, req.reasoning_effort, no_continue)
+    args = _build_oai_run_args(
+        prompt, model, system_prompt, True, req.reasoning_effort, no_continue, x_claude_append_system_prompt,
+    )
     env = _build_env()
 
     busy_workspaces[workspace] = None  # type: ignore[assignment]
 
-    if req.stream:
+    async def _sse():
+        model_name = model
+        finish_reason = "stop"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=workspace,
+                env=env,
+                limit=_STREAM_LIMIT,
+            )
+            busy_workspaces[workspace] = proc
 
-        async def _sse():
-            model_name = model
-            finish_reason = "stop"
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *args,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=workspace,
-                    env=env,
-                    limit=_STREAM_LIMIT,
-                )
-                busy_workspaces[workspace] = proc
+            def _chunk(delta: dict, fr=None) -> str:
+                obj = {
+                    "id": cid, "object": "chat.completion.chunk",
+                    "created": created, "model": model_name,
+                    "choices": [{"index": 0, "delta": delta, "finish_reason": fr}],
+                }
+                return f"data: {json.dumps(obj)}\n\n"
 
-                def _chunk(delta: dict, fr=None) -> str:
-                    obj = {
-                        "id": cid, "object": "chat.completion.chunk",
-                        "created": created, "model": model_name,
-                        "choices": [{"index": 0, "delta": delta, "finish_reason": fr}],
-                    }
-                    return f"data: {json.dumps(obj)}\n\n"
+            yield _chunk({"role": "assistant", "content": ""})
 
-                yield _chunk({"role": "assistant", "content": ""})
+            if proc.stdout:
+                async for raw in proc.stdout:
+                    line = raw.decode(errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    etype = event.get("type", "")
+                    if etype == "assistant":
+                        msg = event.get("message", {})
+                        m = msg.get("model")
+                        if m:
+                            model_name = m
+                        for block in msg.get("content", []):
+                            if block.get("type") == "text":
+                                text = block.get("text", "")
+                                if text:
+                                    yield _chunk({"content": text})
+                    elif etype == "result":
+                        sr = event.get("stop_reason", "")
+                        if sr:
+                            finish_reason = sr
 
-                if proc.stdout:
-                    async for raw in proc.stdout:
-                        line = raw.decode(errors="replace").strip()
-                        if not line:
-                            continue
-                        try:
-                            event = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        etype = event.get("type", "")
-                        if etype == "assistant":
-                            msg = event.get("message", {})
-                            m = msg.get("model")
-                            if m:
-                                model_name = m
-                            for block in msg.get("content", []):
-                                if block.get("type") == "text":
-                                    text = block.get("text", "")
-                                    if text:
-                                        yield _chunk({"content": text})
-                        elif etype == "result":
-                            sr = event.get("stop_reason", "")
-                            if sr:
-                                finish_reason = sr
+            await proc.wait()
+            yield _chunk({}, finish_reason)
+            yield "data: [DONE]\n\n"
+        finally:
+            busy_workspaces.pop(workspace, None)
 
-                await proc.wait()
-                yield _chunk({}, finish_reason)
-                yield "data: [DONE]\n\n"
-            finally:
-                busy_workspaces.pop(workspace, None)
-
-        return StreamingResponse(_sse(), media_type="text/event-stream")
+    return StreamingResponse(_sse(), media_type="text/event-stream")
 
 
 # ── MCP server ────────────────────────────────────────────────────────────────
@@ -688,7 +814,7 @@ async def claude_run(
         resume: Resume a specific session by session ID instead of starting fresh.
         effort: Reasoning effort level — low, medium, high, or max.
     """
-    return await _run_claude_text(
+    text, _ = await _run_claude_text(
         prompt,
         model=model or None,
         system_prompt=system_prompt or None,
@@ -699,6 +825,7 @@ async def claude_run(
         resume=resume or None,
         effort=effort or None,
     )
+    return text
 
 
 @_mcp.tool()

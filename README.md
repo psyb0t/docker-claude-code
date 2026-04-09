@@ -1,12 +1,14 @@
 # 🧠 docker-claude-code
 
-[Claude Code](https://claude.com/product/claude-code) in a Docker container. No host installs. No permission nightmares. Just vibes and `--dangerously-skip-permissions`.
+[Claude Code](https://claude.com/product/claude-code) in a Docker container. No host installs. No permission nightmares. Just vibes and `--dangerously-skip-permissions`. Use it as a CLI, HTTP API, OpenAI-compatible endpoint, MCP server, or Telegram bot.
 
-Four ways to unleash it:
+Four modes, five interfaces:
 
 - **Interactive** — drop-in `claude` CLI replacement, persistent container, picks up where you left off
 - **Programmatic** — pass a prompt, get a response, pipe it into your cursed pipeline
 - **API server** — HTTP endpoints for prompts, file management, monitoring. Slap it in your infra
+  - **OpenAI-compatible** — `chat/completions` endpoint for LiteLLM, OpenAI SDKs, and anything that speaks OpenAI
+  - **MCP server** — Model Context Protocol endpoint so other AI agents can use Claude Code as a tool
 - **Telegram bot** — talk to Claude from your phone when you're takin' a shit. Per-chat workspaces, models, effort levels, file sharing, shell access
 
 ## Table of Contents
@@ -21,6 +23,8 @@ Four ways to unleash it:
   - [Interactive mode](#interactive-mode)
   - [Programmatic mode](#programmatic-mode)
   - [API mode](#api-mode)
+    - [OpenAI-compatible endpoints](#openai-compatible-endpoints)
+    - [MCP server](#mcp-server)
   - [Telegram mode](#telegram-mode)
 - [Customization](#-customization)
 - [Gotchas](#-gotchas)
@@ -502,7 +506,7 @@ All file paths are relative to `/workspaces`. Path traversal outside root is blo
 
 #### OpenAI-compatible endpoints
 
-The API also exposes an OpenAI-compatible adapter so tools like [LiteLLM](https://github.com/BerriAI/litellm), OpenAI SDKs, or anything that speaks `chat/completions` can connect directly.
+The API also exposes an OpenAI-compatible adapter so tools like [LiteLLM](https://github.com/BerriAI/litellm), OpenAI SDKs, or anything that speaks `chat/completions` can connect directly. Unlike a plain model proxy, this runs the full Claude Code agentic CLI behind the scenes — it can read/write files, run commands, and use tools.
 
 **`GET /openai/v1/models`** — list available models:
 
@@ -525,7 +529,16 @@ curl -X POST http://localhost:8080/openai/v1/chat/completions \
   -d '{"model":"haiku","messages":[{"role":"user","content":"hello"}],"stream":true}'
 ```
 
-Use the same model aliases as the CLI (`haiku`, `sonnet`, `opus`). `system` role messages become `--system-prompt`. Multiple user/assistant turns are concatenated into a single prompt. Pass `reasoning_effort` (`low`/`medium`/`high`) to control effort — maps to claude's `--effort`. `temperature` and `max_tokens` are accepted but ignored.
+Use the same model aliases as the CLI (`haiku`, `sonnet`, `opus`). `system` role messages become `--system-prompt`. Pass `reasoning_effort` (`low`/`medium`/`high`) to control effort — maps to claude's `--effort`. `temperature`, `max_tokens`, `tools`, and other OpenAI-specific fields are accepted but silently ignored. Provider prefixes are stripped automatically (`claude-code/haiku` → `haiku`).
+
+**Message handling:**
+- **Single user message** — sent directly as the prompt (fast path, no overhead).
+- **Multi-turn conversations** — the full messages array is written to a JSON file in the workspace (`_oai_uploads/conv_<id>.json`). Claude Code reads the file and responds to the last user message, preserving the conversation context.
+- **Multimodal content** — base64-encoded images and image URLs in message content are downloaded/decoded and saved to the workspace. The content is replaced with the local file path so Claude Code can read the images directly.
+
+Streaming (`"stream": true`) returns standard SSE events. Content arrives in message-level chunks (not character-by-character deltas) since Claude Code assembles full messages internally.
+
+**File workflow tip:** for best performance, upload input files via `PUT /files/...`, tell Claude Code to work with them by path, then download the output files via `GET /files/...`. Much faster than embedding large content in the prompt.
 
 Custom headers for claude-specific behavior:
 
@@ -533,6 +546,7 @@ Custom headers for claude-specific behavior:
 | ------ | ----------- |
 | `X-Claude-Workspace` | Workspace subpath under `/workspaces` |
 | `X-Claude-Continue` | Set to `1`/`true`/`yes` to continue the previous session |
+| `X-Claude-Append-System-Prompt` | Text to append to the system prompt |
 
 **LiteLLM example:**
 
@@ -550,18 +564,20 @@ print(response.choices[0].message.content)
 
 #### MCP server
 
-The API also exposes an MCP (Model Context Protocol) server at `/mcp` using streamable HTTP transport. Any MCP-compatible client (Claude Desktop, Claude Code, etc.) can connect to it.
+The API also exposes an MCP (Model Context Protocol) server at `/mcp/` using streamable HTTP transport. Any MCP-compatible client (Claude Desktop, Claude Code, etc.) can connect to it. The `claude_run` tool runs the full Claude Code agentic CLI — it can read/write files, run commands, and use tools in the workspace, not just generate text.
 
 ```json
 {
   "mcpServers": {
     "claude-code": {
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:8080/mcp/",
       "headers": { "Authorization": "Bearer your-secret-token" }
     }
   }
 }
 ```
+
+If your MCP client doesn't support custom headers, pass the token as a query param: `http://localhost:8080/mcp/?apiToken=your-secret-token`
 
 Available tools:
 
