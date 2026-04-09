@@ -540,7 +540,7 @@ Custom headers for claude-specific behavior:
 import litellm
 
 response = litellm.completion(
-    model="openai/haiku",
+    model="claude-code/haiku",
     messages=[{"role": "user", "content": "hello"}],
     api_base="http://localhost:8080/openai/v1",
     api_key="your-secret-token",  # or any string if no token set

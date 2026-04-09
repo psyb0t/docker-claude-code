@@ -524,6 +524,9 @@ async def openai_chat_completions(
     if not prompt:
         raise HTTPException(status_code=400, detail="no user message provided")
 
+    # strip provider prefix (e.g. "openai/haiku" → "haiku")
+    model = req.model.split("/", 1)[-1] if "/" in req.model else req.model
+
     no_continue = x_claude_continue is None or x_claude_continue.lower() not in ("1", "true", "yes")
 
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
@@ -532,7 +535,7 @@ async def openai_chat_completions(
     if not req.stream:
         text = await _run_claude_text(
             prompt,
-            model=req.model,
+            model=model,
             system_prompt=system_prompt,
             workspace=x_claude_workspace,
             no_continue=no_continue,
@@ -542,7 +545,7 @@ async def openai_chat_completions(
             "id": cid,
             "object": "chat.completion",
             "created": created,
-            "model": req.model,
+            "model": model,
             "choices": [
                 {
                     "index": 0,
@@ -558,7 +561,7 @@ async def openai_chat_completions(
     if workspace in busy_workspaces:
         raise HTTPException(status_code=409, detail="workspace busy, retry later")
 
-    args = _build_oai_run_args(prompt, req.model, system_prompt, True, req.reasoning_effort, no_continue)
+    args = _build_oai_run_args(prompt, model, system_prompt, True, req.reasoning_effort, no_continue)
     env = _build_env()
 
     busy_workspaces[workspace] = None  # type: ignore[assignment]
@@ -566,7 +569,7 @@ async def openai_chat_completions(
     if req.stream:
 
         async def _sse():
-            model_name = req.model
+            model_name = model
             finish_reason = "stop"
             try:
                 proc = await asyncio.create_subprocess_exec(
