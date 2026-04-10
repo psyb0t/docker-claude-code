@@ -4,3 +4,4 @@ git-update.sh
 docker-compose.dev.yaml
 tests/.env
 base/
+tests/.tmp-skills/

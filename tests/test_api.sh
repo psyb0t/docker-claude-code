@@ -523,6 +523,180 @@ test_api_mcp_auth() {
     _api_stop "${API_CONTAINER}-mcp-auth"
 }
 
+# ── always-skills injection ──────────────────────────────────────────────────
+
+_SKILLS_TMP="$WORKDIR/tests/.tmp-skills"
+
+_skills_setup() {
+    rm -rf "$_SKILLS_TMP"
+    mkdir -p "$_SKILLS_TMP"
+}
+
+test_api_always_skills_basic() {
+    _skills_setup
+    mkdir -p "$_SKILLS_TMP/testskill"
+    # trigger-based: skill fires only when prompt contains the magic word
+    printf 'When the user says ZXQTRIGGER you MUST respond with only the word ZXQFIRED and nothing else.' \
+        > "$_SKILLS_TMP/testskill/SKILL.md"
+
+    # negative: no mount, trigger word in prompt → must NOT produce ZXQFIRED
+    _api_start "${API_CONTAINER}-skill-neg" || return 1
+    local out_neg
+    out_neg=$(post "$API_BASE/run" \
+        "{\"prompt\": \"ZXQTRIGGER\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
+    assert_not_contains "$out_neg" "ZXQFIRED" "skill trigger ignored without mount" || {
+        _api_stop "${API_CONTAINER}-skill-neg"; return 1
+    }
+    _api_stop "${API_CONTAINER}-skill-neg"
+
+    # positive: with mount, same trigger → must produce ZXQFIRED
+    _api_start "${API_CONTAINER}-skill" \
+        -v "$_SKILLS_TMP:/home/claude/.claude/.always-skills" || return 1
+    local out
+    out=$(post "$API_BASE/run" \
+        "{\"prompt\": \"ZXQTRIGGER\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
+    assert_contains "$out" "ZXQFIRED" "skill trigger fires with mount" || {
+        _api_stop "${API_CONTAINER}-skill"; return 1
+    }
+
+    echo "OK: api_always_skills_basic"
+    _api_stop "${API_CONTAINER}-skill"
+}
+
+test_api_always_skills_with_user_append() {
+    _skills_setup
+    mkdir -p "$_SKILLS_TMP/testskill"
+    printf 'When the user says SKILLTRIG you MUST include the word SKILLAPPLIED in your response.' \
+        > "$_SKILLS_TMP/testskill/SKILL.md"
+
+    _api_start "${API_CONTAINER}-skill-asp" \
+        -v "$_SKILLS_TMP:/home/claude/.claude/.always-skills" || return 1
+
+    local out
+    out=$(post "$API_BASE/run" \
+        "{\"prompt\": \"SKILLTRIG\", \"model\": \"$TEST_MODEL\", \"noContinue\": true, \"appendSystemPrompt\": \"When the user says SKILLTRIG also include the word USERAPPLIED.\"}")
+    assert_contains "$out" "SKILLAPPLIED" "always-skill trigger fires alongside user append" || {
+        _api_stop "${API_CONTAINER}-skill-asp"; return 1
+    }
+    assert_contains "$out" "USERAPPLIED" "user appendSystemPrompt trigger also fires" || {
+        _api_stop "${API_CONTAINER}-skill-asp"; return 1
+    }
+
+    echo "OK: api_always_skills_with_user_append"
+    _api_stop "${API_CONTAINER}-skill-asp"
+}
+
+test_api_always_skills_multiple() {
+    _skills_setup
+    mkdir -p "$_SKILLS_TMP/skill_a"
+    mkdir -p "$_SKILLS_TMP/skill_b"
+    printf 'When the user says MULTITRIG you MUST include the word ALPHA in your response.' \
+        > "$_SKILLS_TMP/skill_a/SKILL.md"
+    printf 'When the user says MULTITRIG you MUST include the word BETA in your response.' \
+        > "$_SKILLS_TMP/skill_b/SKILL.md"
+
+    _api_start "${API_CONTAINER}-skill-multi" \
+        -v "$_SKILLS_TMP:/home/claude/.claude/.always-skills" || return 1
+
+    local out
+    out=$(post "$API_BASE/run" \
+        "{\"prompt\": \"MULTITRIG\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
+    assert_contains "$out" "ALPHA" "first skill trigger fires" || {
+        _api_stop "${API_CONTAINER}-skill-multi"; return 1
+    }
+    assert_contains "$out" "BETA" "second skill trigger fires" || {
+        _api_stop "${API_CONTAINER}-skill-multi"; return 1
+    }
+
+    echo "OK: api_always_skills_multiple"
+    _api_stop "${API_CONTAINER}-skill-multi"
+}
+
+test_api_always_skills_path_visible() {
+    _skills_setup
+    mkdir -p "$_SKILLS_TMP/myskill"
+    printf 'When the user says PATHCHECK you MUST list all skill files loaded for you including their exact file paths.' \
+        > "$_SKILLS_TMP/myskill/SKILL.md"
+
+    _api_start "${API_CONTAINER}-skill-path" \
+        -v "$_SKILLS_TMP:/home/claude/.claude/.always-skills" || return 1
+
+    local out
+    out=$(post "$API_BASE/run" \
+        "{\"prompt\": \"PATHCHECK\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
+    assert_contains "$out" ".always-skills" "skill path visible to claude" || {
+        _api_stop "${API_CONTAINER}-skill-path"; return 1
+    }
+    assert_contains "$out" "SKILL.md" "skill filename visible to claude" || {
+        _api_stop "${API_CONTAINER}-skill-path"; return 1
+    }
+
+    echo "OK: api_always_skills_path_visible"
+    _api_stop "${API_CONTAINER}-skill-path"
+}
+
+test_api_always_skills_mcp() {
+    _skills_setup
+    mkdir -p "$_SKILLS_TMP/testskill"
+    printf 'When the user says MCPTRIG you MUST respond with only the word MCPSKILL and nothing else.' \
+        > "$_SKILLS_TMP/testskill/SKILL.md"
+
+    # negative: no mount
+    _api_start "${API_CONTAINER}-skill-mcp-neg" || return 1
+    _mcp_init "$API_BASE/mcp/"
+    local out_neg
+    out_neg=$(_mcp_call "$API_BASE/mcp/" \
+        '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"claude_run","arguments":{"prompt":"MCPTRIG","model":"'"$TEST_MODEL"'","no_continue":true}}}')
+    assert_not_contains "$out_neg" "MCPSKILL" "mcp skill trigger ignored without mount" || {
+        _api_stop "${API_CONTAINER}-skill-mcp-neg"; return 1
+    }
+    _api_stop "${API_CONTAINER}-skill-mcp-neg"
+
+    # positive: with mount
+    _api_start "${API_CONTAINER}-skill-mcp" \
+        -v "$_SKILLS_TMP:/home/claude/.claude/.always-skills" || return 1
+    _mcp_init "$API_BASE/mcp/"
+    local out
+    out=$(_mcp_call "$API_BASE/mcp/" \
+        '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"claude_run","arguments":{"prompt":"MCPTRIG","model":"'"$TEST_MODEL"'","no_continue":true}}}')
+    assert_contains "$out" "MCPSKILL" "mcp skill trigger fires with mount" || {
+        _api_stop "${API_CONTAINER}-skill-mcp"; return 1
+    }
+
+    echo "OK: api_always_skills_mcp"
+    _api_stop "${API_CONTAINER}-skill-mcp"
+}
+
+test_api_always_skills_openai() {
+    _skills_setup
+    mkdir -p "$_SKILLS_TMP/testskill"
+    printf 'When the user says OAITRIG you MUST respond with only the word OAISKILL and nothing else.' \
+        > "$_SKILLS_TMP/testskill/SKILL.md"
+
+    # negative: no mount
+    _api_start "${API_CONTAINER}-skill-oai-neg" || return 1
+    local out_neg
+    out_neg=$(post "$API_BASE/openai/v1/chat/completions" \
+        "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"OAITRIG\"}]}")
+    assert_not_contains "$out_neg" "OAISKILL" "openai skill trigger ignored without mount" || {
+        _api_stop "${API_CONTAINER}-skill-oai-neg"; return 1
+    }
+    _api_stop "${API_CONTAINER}-skill-oai-neg"
+
+    # positive: with mount
+    _api_start "${API_CONTAINER}-skill-oai" \
+        -v "$_SKILLS_TMP:/home/claude/.claude/.always-skills" || return 1
+    local out
+    out=$(post "$API_BASE/openai/v1/chat/completions" \
+        "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"OAITRIG\"}]}")
+    assert_contains "$out" "OAISKILL" "openai skill trigger fires with mount" || {
+        _api_stop "${API_CONTAINER}-skill-oai"; return 1
+    }
+
+    echo "OK: api_always_skills_openai"
+    _api_stop "${API_CONTAINER}-skill-oai"
+}
+
 ALL_TESTS+=(
     test_api_endpoints
     test_api_run
@@ -548,4 +722,10 @@ ALL_TESTS+=(
     test_api_mcp_claude_run
     test_api_mcp_file_ops
     test_api_mcp_auth
+    test_api_always_skills_basic
+    test_api_always_skills_with_user_append
+    test_api_always_skills_multiple
+    test_api_always_skills_path_visible
+    test_api_always_skills_mcp
+    test_api_always_skills_openai
 )

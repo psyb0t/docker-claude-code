@@ -100,6 +100,27 @@ if os.path.isfile(SYSTEM_HINT_FILE):
 API_TOKEN = os.environ.get("CLAUDE_MODE_API_TOKEN", "")
 PORT = int(os.environ.get("CLAUDE_MODE_API_PORT", "8080"))
 
+ALWAYS_SKILLS_DIR = "/home/claude/.claude/.always-skills"
+ALWAYS_SKILLS = ""
+ALWAYS_SKILLS_COUNT = 0
+if os.path.isdir(ALWAYS_SKILLS_DIR):
+    _skill_parts: list[str] = []
+    for _root, _dirs, _files in os.walk(ALWAYS_SKILLS_DIR):
+        _dirs.sort()
+        for _fname in sorted(_files):
+            if _fname == "SKILL.md":
+                _fpath = os.path.join(_root, _fname)
+                try:
+                    with open(_fpath) as _sf:
+                        _content = _sf.read().strip()
+                    _skill_parts.append(f"[Skill file: {_fpath}]\n\n{_content}")
+                    log.debug("always-skill loaded: %s", _fpath)
+                except OSError:
+                    log.warning("always-skill: failed to read %s", _fpath)
+    ALWAYS_SKILLS = "\n\n".join(_skill_parts)
+    ALWAYS_SKILLS_COUNT = len(_skill_parts)
+    log.info("always-skills: loaded %d from %s", ALWAYS_SKILLS_COUNT, ALWAYS_SKILLS_DIR)
+
 busy_workspaces: dict[str, asyncio.subprocess.Process] = {}
 
 
@@ -157,10 +178,13 @@ def _build_args(req: RunRequest, with_continue: bool = False):
         args += ["--model", req.model]
     if req.system_prompt:
         args += ["--system-prompt", req.system_prompt]
-    # always append system hint + any user append
+    # always append system hint + always-skills + any user append
     append_parts = []
     if SYSTEM_HINT:
         append_parts.append(SYSTEM_HINT)
+    if ALWAYS_SKILLS:
+        append_parts.append(ALWAYS_SKILLS)
+        log.debug("_build_args: injecting %d always-skill(s)", ALWAYS_SKILLS_COUNT)
     if req.append_system_prompt:
         append_parts.append(req.append_system_prompt)
     if append_parts:
@@ -213,6 +237,8 @@ async def _run_claude_text(
     append_parts = []
     if SYSTEM_HINT:
         append_parts.append(SYSTEM_HINT)
+    if ALWAYS_SKILLS:
+        append_parts.append(ALWAYS_SKILLS)
     if append_system_prompt:
         append_parts.append(append_system_prompt)
     if append_parts:
@@ -663,6 +689,8 @@ def _build_oai_run_args(
     append_parts = []
     if SYSTEM_HINT:
         append_parts.append(SYSTEM_HINT)
+    if ALWAYS_SKILLS:
+        append_parts.append(ALWAYS_SKILLS)
     if append_system_prompt:
         append_parts.append(append_system_prompt)
     if append_parts:

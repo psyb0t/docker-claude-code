@@ -272,11 +272,37 @@ fi
 ARGS_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-args"
 UPDATE_FILE="/home/claude/.claude/.${CLAUDE_CONTAINER_NAME}-update"
 
-# build system hint flag for all claude invocations
-SYSTEM_HINT_FLAG=""
+# build combined append-system-prompt: hint + always-skills
+COMBINED_APPEND=""
 if [ -f "$SYSTEM_HINT_FILE" ]; then
-	HINT_CONTENT=$(cat "$SYSTEM_HINT_FILE")
-	SYSTEM_HINT_FLAG="--append-system-prompt $(printf '%q' "$HINT_CONTENT")"
+	COMBINED_APPEND=$(cat "$SYSTEM_HINT_FILE")
+fi
+ALWAYS_SKILLS_DIR="/home/claude/.claude/.always-skills"
+if [ -d "$ALWAYS_SKILLS_DIR" ]; then
+	dbg "scanning always-skills: $ALWAYS_SKILLS_DIR"
+	_skill_count=0
+	while IFS= read -r -d '' skill_file; do
+		skill_content=$(cat "$skill_file")
+		if [ -n "$skill_content" ]; then
+			skill_block="[Skill file: ${skill_file}]
+
+${skill_content}"
+			if [ -n "$COMBINED_APPEND" ]; then
+				COMBINED_APPEND="${COMBINED_APPEND}
+
+${skill_block}"
+			else
+				COMBINED_APPEND="$skill_block"
+			fi
+			_skill_count=$(( _skill_count + 1 ))
+			dbg "always-skill loaded: $skill_file"
+		fi
+	done < <(find "$ALWAYS_SKILLS_DIR" -name "SKILL.md" -print0 2>/dev/null | sort -z)
+	dbg "always-skills total: $_skill_count"
+fi
+SYSTEM_HINT_FLAG=""
+if [ -n "$COMBINED_APPEND" ]; then
+	SYSTEM_HINT_FLAG="--append-system-prompt $(printf '%q' "$COMBINED_APPEND")"
 fi
 
 # detect --no-continue and --resume in args (affects whether we auto-add --continue)
