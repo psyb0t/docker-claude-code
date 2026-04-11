@@ -2,8 +2,13 @@
 
 dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
 
-CLAUDE_IMAGE="${CLAUDE_IMAGE:-psyb0t/claudebox:latest}"
-[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_IMAGE="psyb0t/claudebox:latest-minimal"
+if [ -n "${CLAUDE_IMAGE:-}" ]; then
+    CLAUDE_IMAGE="$CLAUDE_IMAGE"
+elif [ -n "$CLAUDE_MINIMAL" ]; then
+    CLAUDE_IMAGE="psyb0t/claudebox:latest-minimal"
+else
+    CLAUDE_IMAGE="psyb0t/claudebox:latest"
+fi
 
 # Git identity - use env var if set, otherwise empty
 CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
@@ -61,7 +66,9 @@ dbg "ANTHROPIC_API_KEY set: $([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no
 dbg "CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo yes || echo no)"
 AUTH_CONTENT=$(printf '%s\n' "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
 echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}-auth"
+chmod 600 "$CLAUDE_DIR/.${container_name}-auth"
 echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}_prog-auth"
+chmod 600 "$CLAUDE_DIR/.${container_name}_prog-auth"
 dbg "wrote auth files"
 
 # updates are disabled by default; pass --update to opt in
@@ -238,8 +245,8 @@ if [ $# -gt 0 ]; then
             dbg "prog: docker run exited with $prog_rc"
         else
             dbg "prog: container exists, writing args file and starting"
-            printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
             trap 'rm -f "$CLAUDE_DIR/.${prog_name}-args"' EXIT
+            printf '%q ' "${PASS_ARGS[@]}" > "$CLAUDE_DIR/.${prog_name}-args"
             dbg "prog: docker start -a $prog_name"
             if [ -n "$PIPE_MODE" ]; then
                 docker start -a "$prog_name" \

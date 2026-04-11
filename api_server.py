@@ -98,7 +98,11 @@ if os.path.isfile(SYSTEM_HINT_FILE):
         SYSTEM_HINT = _f.read().strip()
 
 API_TOKEN = os.environ.get("CLAUDE_MODE_API_TOKEN", "")
-PORT = int(os.environ.get("CLAUDE_MODE_API_PORT", "8080"))
+try:
+    PORT = int(os.environ.get("CLAUDE_MODE_API_PORT", "8080"))
+except ValueError:
+    log.error("CLAUDE_MODE_API_PORT must be a number, got: %s", os.environ.get("CLAUDE_MODE_API_PORT"))
+    raise SystemExit(1)
 
 ALWAYS_SKILLS_DIR = "/home/claude/.claude/.always-skills"
 ALWAYS_SKILLS = ""
@@ -481,7 +485,7 @@ async def status(authorization: Optional[str] = Header(None)):
     _check_auth(authorization)
 
     return {
-        "busy_workspaces": list(busy_workspaces.keys()),
+        "busyWorkspaces": list(busy_workspaces.keys()),
     }
 
 

@@ -45,7 +45,17 @@ if [ -f "$SCRIPT_DIR/wrapper.sh" ]; then
 	cp "$SCRIPT_DIR/wrapper.sh" "$WRAPPER_TMP"
 else
 	echo "📝 Downloading wrapper.sh..."
-	curl -fsSL "https://raw.githubusercontent.com/psyb0t/claudebox/master/wrapper.sh" -o "$WRAPPER_TMP"
+	if ! curl -fsSL "https://raw.githubusercontent.com/psyb0t/claudebox/master/wrapper.sh" -o "$WRAPPER_TMP"; then
+		echo "❌ Failed to download wrapper.sh"
+		rm -f "$WRAPPER_TMP"
+		exit 1
+	fi
+fi
+
+if [ ! -s "$WRAPPER_TMP" ]; then
+	echo "❌ wrapper.sh is empty — download failed"
+	rm -f "$WRAPPER_TMP"
+	exit 1
 fi
 
 echo "📝 Installing $BIN_NAME to $BIN_PATH..."

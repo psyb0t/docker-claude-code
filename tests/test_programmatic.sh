@@ -8,10 +8,8 @@ _prog_ssh_dir=""
 _prog_container_name=""
 
 _prog_setup() {
-    _prog_data_dir="$WORKDIR/tests/.tmp-prog-data"
-    _prog_ssh_dir="$WORKDIR/tests/.tmp-prog-ssh"
-    rm -rf "$_prog_data_dir" "$_prog_ssh_dir"
-    mkdir -p "$_prog_data_dir" "$_prog_ssh_dir"
+    _prog_data_dir=$(mktemp -d "$WORKDIR/tests/.tmp-prog-data-XXXXX")
+    _prog_ssh_dir=$(mktemp -d "$WORKDIR/tests/.tmp-prog-ssh-XXXXX")
     _prog_container_name="${CONTAINER_PREFIX}-prog-$$-$RANDOM"
 }
 
@@ -21,6 +19,7 @@ _prog_cleanup() {
 }
 
 _prog_run() {
+    [ -z "$_prog_data_dir" ] && { echo "BUG: _prog_setup not called"; return 1; }
     CLAUDE_IMAGE="$IMAGE" \
     CLAUDE_DATA_DIR="$_prog_data_dir" \
     CLAUDE_SSH_DIR="$_prog_ssh_dir" \
@@ -30,6 +29,7 @@ _prog_run() {
 }
 
 _prog_run_with_token() {
+    [ -z "$_prog_data_dir" ] && { echo "BUG: _prog_setup not called"; return 1; }
     local token="$1"
     shift
     CLAUDE_IMAGE="$IMAGE" \
@@ -183,8 +183,8 @@ test_programmatic_always_skills() {
     _prog_setup
 
     # create skills dir with trigger-based skill
-    local skills_dir="$WORKDIR/tests/.tmp-prog-skills"
-    rm -rf "$skills_dir"
+    local skills_dir
+    skills_dir=$(mktemp -d "$WORKDIR/tests/.tmp-prog-skills-XXXXX")
     mkdir -p "$skills_dir/testskill"
     printf 'When the user says PROGTRIG you MUST respond with only the word PROGSKILL and nothing else.' \
         > "$skills_dir/testskill/SKILL.md"

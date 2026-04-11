@@ -365,16 +365,17 @@ async def _handle_file_upload(
     _ensure_workspace(workspace)
 
     tg_file = await tg_file_obj.get_file()
-    dest = os.path.join(workspace, file_name)
+    safe_name = os.path.basename(file_name)
+    dest = os.path.join(workspace, safe_name)
     await tg_file.download_to_drive(dest)
-    logger.info("chat %s uploaded %s to %s", chat.id, file_name, dest)
+    logger.info("chat %s uploaded %s to %s", chat.id, safe_name, dest)
 
     caption = msg.caption or ""
     if not caption:
-        await msg.reply_text(f"saved {file_name}")
+        await msg.reply_text(f"saved {safe_name}")
         return
 
-    prompt = f"I saved a file '{file_name}' to the workspace. {caption}"
+    prompt = f"I saved a file '{safe_name}' to the workspace. {caption}"
     await _run_prompt(update, context, prompt)
 
 

@@ -3,20 +3,18 @@
 API_PORT=18943
 API_CONTAINER="${CONTAINER_PREFIX}-api"
 API_BASE="http://localhost:${API_PORT}"
-_CLAUDE_TMP="$WORKDIR/tests/.tmp-claude"
+_api_claude_tmp=""
 
 _api_start() {
     local name="${1:-$API_CONTAINER}"
     shift || true
-    # fresh .claude dir per container — isolated from host, sessions persist within the run
-    rm -rf "$_CLAUDE_TMP"
-    mkdir -p "$_CLAUDE_TMP"
+    _api_claude_tmp=$(mktemp -d "$WORKDIR/tests/.tmp-api-XXXXX")
     start_container "$name" \
         --rm --network host \
         -e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN" \
         -e "CLAUDE_MODE_API=1" \
         -e "CLAUDE_MODE_API_PORT=$API_PORT" \
-        -v "$_CLAUDE_TMP:/home/claude/.claude" \
+        -v "$_api_claude_tmp:/home/claude/.claude" \
         "$@" \
         "$IMAGE"
     wait_for_http "$API_BASE/health" 60 || {
@@ -28,6 +26,8 @@ _api_start() {
 
 _api_stop() {
     docker rm -f "${1:-$API_CONTAINER}" >/dev/null 2>&1 || true
+    rm -rf "$_api_claude_tmp"
+    _api_claude_tmp=""
     sleep 1
 }
 
@@ -36,7 +36,7 @@ _api_stop() {
 # format: label|method|path|expected_in_body
 ENDPOINT_CASES=(
     "health|GET|/health|ok"
-    "status|GET|/status|busy_workspaces"
+    "status|GET|/status|busyWorkspaces"
 )
 
 test_api_endpoints() {
@@ -134,7 +134,7 @@ AUTH_CASES=(
     "no token rejects|/status||401|"
     "wrong token rejects|/status|Bearer wrong|401|"
     "health needs no auth|/health||200|ok"
-    "correct token|/status|Bearer secret|200|busy_workspaces"
+    "correct token|/status|Bearer secret|200|busyWorkspaces"
 )
 
 test_api_auth() {
@@ -515,11 +515,10 @@ test_api_mcp_auth() {
 
 # ── always-skills injection ──────────────────────────────────────────────────
 
-_SKILLS_TMP="$WORKDIR/tests/.tmp-skills"
+_SKILLS_TMP=""
 
 _skills_setup() {
-    rm -rf "$_SKILLS_TMP"
-    mkdir -p "$_SKILLS_TMP"
+    _SKILLS_TMP=$(mktemp -d "$WORKDIR/tests/.tmp-skills-XXXXX")
 }
 
 # trigger-based skill test helper: negative (no mount) + positive (with mount)
@@ -574,9 +573,10 @@ _test_skill_trigger() {
             ;;
     esac
     assert_contains "$out" "$expected" "$endpoint skill: trigger fires with mount" || {
-        _api_stop "${API_CONTAINER}-skill-${suffix}"; return 1
+        _api_stop "${API_CONTAINER}-skill-${suffix}"; rm -rf "$_SKILLS_TMP"; return 1
     }
     _api_stop "${API_CONTAINER}-skill-${suffix}"
+    rm -rf "$_SKILLS_TMP"
 }
 
 test_api_always_skills_basic() {
@@ -609,11 +609,12 @@ test_api_always_skills_with_user_append() {
     local out
     out=$(post "$API_BASE/run" \
         "{\"prompt\": \"SKILLTRIG\", \"model\": \"$TEST_MODEL\", \"noContinue\": true, \"appendSystemPrompt\": \"When the user says SKILLTRIG also include the word USERAPPLIED.\"}")
-    assert_contains "$out" "SKILLAPPLIED" "skill + user append: skill fires" || { _api_stop "${API_CONTAINER}-skill-asp"; return 1; }
-    assert_contains "$out" "USERAPPLIED" "skill + user append: user append fires" || { _api_stop "${API_CONTAINER}-skill-asp"; return 1; }
+    assert_contains "$out" "SKILLAPPLIED" "skill + user append: skill fires" || { _api_stop "${API_CONTAINER}-skill-asp"; rm -rf "$_SKILLS_TMP"; return 1; }
+    assert_contains "$out" "USERAPPLIED" "skill + user append: user append fires" || { _api_stop "${API_CONTAINER}-skill-asp"; rm -rf "$_SKILLS_TMP"; return 1; }
 
     echo "OK: api_always_skills_with_user_append"
     _api_stop "${API_CONTAINER}-skill-asp"
+    rm -rf "$_SKILLS_TMP"
 }
 
 test_api_always_skills_multiple() {
@@ -630,11 +631,12 @@ test_api_always_skills_multiple() {
     local out
     out=$(post "$API_BASE/run" \
         "{\"prompt\": \"MULTITRIG\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
-    assert_contains "$out" "ALPHA" "multiple skills: first fires" || { _api_stop "${API_CONTAINER}-skill-multi"; return 1; }
-    assert_contains "$out" "BETA" "multiple skills: second fires" || { _api_stop "${API_CONTAINER}-skill-multi"; return 1; }
+    assert_contains "$out" "ALPHA" "multiple skills: first fires" || { _api_stop "${API_CONTAINER}-skill-multi"; rm -rf "$_SKILLS_TMP"; return 1; }
+    assert_contains "$out" "BETA" "multiple skills: second fires" || { _api_stop "${API_CONTAINER}-skill-multi"; rm -rf "$_SKILLS_TMP"; return 1; }
 
     echo "OK: api_always_skills_multiple"
     _api_stop "${API_CONTAINER}-skill-multi"
+    rm -rf "$_SKILLS_TMP"
 }
 
 test_api_always_skills_path_visible() {
@@ -649,11 +651,12 @@ test_api_always_skills_path_visible() {
     local out
     out=$(post "$API_BASE/run" \
         "{\"prompt\": \"PATHCHECK\", \"model\": \"$TEST_MODEL\", \"noContinue\": true}")
-    assert_contains "$out" ".always-skills" "skill path visible to claude" || { _api_stop "${API_CONTAINER}-skill-path"; return 1; }
-    assert_contains "$out" "SKILL.md" "skill filename visible to claude" || { _api_stop "${API_CONTAINER}-skill-path"; return 1; }
+    assert_contains "$out" ".always-skills" "skill path visible to claude" || { _api_stop "${API_CONTAINER}-skill-path"; rm -rf "$_SKILLS_TMP"; return 1; }
+    assert_contains "$out" "SKILL.md" "skill filename visible to claude" || { _api_stop "${API_CONTAINER}-skill-path"; rm -rf "$_SKILLS_TMP"; return 1; }
 
     echo "OK: api_always_skills_path_visible"
     _api_stop "${API_CONTAINER}-skill-path"
+    rm -rf "$_SKILLS_TMP"
 }
 
 ALL_TESTS+=(

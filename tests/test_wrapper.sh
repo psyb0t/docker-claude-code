@@ -8,10 +8,8 @@ TEST_SSH_DIR=""
 _wrapper_container_name=""
 
 _wrapper_setup() {
-    TEST_DATA_DIR="$WORKDIR/tests/.tmp-wrap-data"
-    TEST_SSH_DIR="$WORKDIR/tests/.tmp-wrap-ssh"
-    rm -rf "$TEST_DATA_DIR" "$TEST_SSH_DIR"
-    mkdir -p "$TEST_DATA_DIR" "$TEST_SSH_DIR"
+    TEST_DATA_DIR=$(mktemp -d "$WORKDIR/tests/.tmp-wrap-data-XXXXX")
+    TEST_SSH_DIR=$(mktemp -d "$WORKDIR/tests/.tmp-wrap-ssh-XXXXX")
     _wrapper_container_name="${CONTAINER_PREFIX}-wrap-$$-$RANDOM"
 }
 
@@ -21,6 +19,7 @@ _wrapper_cleanup() {
 }
 
 _wrapper_run() {
+    [ -z "$TEST_DATA_DIR" ] && { echo "BUG: _wrapper_setup not called"; return 1; }
     CLAUDE_IMAGE="$IMAGE" \
     CLAUDE_DATA_DIR="$TEST_DATA_DIR" \
     CLAUDE_SSH_DIR="$TEST_SSH_DIR" \
@@ -216,9 +215,8 @@ test_wrapper_env_forwarding() {
 test_wrapper_volume_mounting() {
     _wrapper_setup
 
-    local mount_dir="$WORKDIR/tests/.tmp-mount"
-    rm -rf "$mount_dir"
-    mkdir -p "$mount_dir"
+    local mount_dir
+    mount_dir=$(mktemp -d "$WORKDIR/tests/.tmp-mount-XXXXX")
     echo "MOUNTTEST99" > "$mount_dir/testfile.txt"
 
     # verify mount works: tell claude to read the file from inside the container

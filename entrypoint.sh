@@ -192,14 +192,14 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 
 dbg "configuring .claude.json"
 if [ -f "$CLAUDE_JSON" ]; then
-	UPDATED=$(jq '.installMethod = "native" | .autoUpdates = false | .autoUpdatesProtectedForNative = true' "$CLAUDE_JSON")
-	echo "$UPDATED" > "$CLAUDE_JSON"
+	UPDATED=$(jq '.installMethod = "native" | .autoUpdates = false | .autoUpdatesProtectedForNative = true' "$CLAUDE_JSON") && \
+		printf '%s\n' "$UPDATED" > "$CLAUDE_JSON"
 else
 	cp /claude/.claude.json "$CLAUDE_JSON"
 fi
 
-UPDATED=$(jq --arg dir "$WORKSPACE_DIR" '.projects[$dir].hasTrustDialogAccepted = true' "$CLAUDE_JSON")
-echo "$UPDATED" > "$CLAUDE_JSON"
+UPDATED=$(jq --arg dir "$WORKSPACE_DIR" '.projects[$dir].hasTrustDialogAccepted = true' "$CLAUDE_JSON") && \
+	printf '%s\n' "$UPDATED" > "$CLAUDE_JSON"
 chown -R claude:claude "$CLAUDE_CONFIG_DIR"
 dbg ".claude.json done"
 
@@ -250,11 +250,11 @@ CMD="$CMD && mkdir -p /home/claude/.claude/bin"
 CMD="$CMD && export PATH=/home/claude/.claude/bin:\$PATH"
 
 if [ -n "$CLAUDE_GIT_NAME" ]; then
-	CMD="$CMD && git config --global user.name \"$CLAUDE_GIT_NAME\""
+	CMD="$CMD && git config --global user.name $(printf '%q' "$CLAUDE_GIT_NAME")"
 fi
 
 if [ -n "$CLAUDE_GIT_EMAIL" ]; then
-	CMD="$CMD && git config --global user.email \"$CLAUDE_GIT_EMAIL\""
+	CMD="$CMD && git config --global user.email $(printf '%q' "$CLAUDE_GIT_EMAIL")"
 fi
 
 # load auth env vars from file (for existing containers that can't get new env vars)
@@ -264,7 +264,7 @@ if [ -f "$AUTH_FILE" ]; then
 	while IFS='=' read -r name value; do
 		if [ -n "$value" ]; then
 			dbg "auth: loading $name from file"
-			CMD="$CMD && export $name=\"$value\""
+			CMD="$CMD && export $name=$(printf '%q' "$value")"
 		fi
 	done < "$AUTH_FILE"
 fi
