@@ -27,6 +27,9 @@ Four modes, five interfaces:
     - [MCP server](#mcp-server)
   - [Telegram mode](#telegram-mode)
 - [Customization](#-customization)
+  - [Custom scripts (`~/.claude/bin`)](#custom-scripts-claudebin)
+  - [Init hooks (`~/.claude/init.d`)](#init-hooks-claudeinitd)
+  - [Always-active skills (`~/.claude/.always-skills`)](#always-active-skills-claudealways-skills)
 - [Gotchas](#-gotchas)
 - [License](#-license)
 
@@ -704,6 +707,39 @@ chmod +x ~/.claude/init.d/setup.sh
 ```
 
 Great for pre-installing tools on the minimal image so Claude doesn't waste your tokens figuring out `apt-get`.
+
+### Always-active skills (`~/.claude/.always-skills`)
+
+Drop skill files into `~/.claude/.always-skills/` and they get injected into every Claude invocation automatically — interactive, programmatic, API, OpenAI adapter, MCP, all of it. No slash command, no per-request configuration needed.
+
+Each subdirectory can contain a `SKILL.md` with instructions for Claude. The directory is scanned recursively (alphabetical order), and every `SKILL.md` found gets appended to the system prompt prefixed with its full path:
+
+```
+[Skill file: /home/claude/.claude/.always-skills/caveman/SKILL.md]
+
+<skill content>
+```
+
+The path prefix means Claude knows exactly where the skill lives and can read any files referenced by it.
+
+```bash
+# install caveman skill (auto-activates every session)
+mkdir -p ~/.claude/.always-skills/caveman
+cp ~/.claude/plugins/cache/caveman/caveman/*/skills/caveman/SKILL.md \
+   ~/.claude/.always-skills/caveman/SKILL.md
+```
+
+Or write your own:
+
+```bash
+mkdir -p ~/.claude/.always-skills/my-rules
+cat > ~/.claude/.always-skills/my-rules/SKILL.md << 'EOF'
+When writing Go code, always use slog for logging, never fmt.Println.
+When writing Python, always use pathlib, never os.path.
+EOF
+```
+
+Multiple skills stack — all of them are injected. User-supplied `appendSystemPrompt` (via API request, `--append-system-prompt` flag, etc.) is appended after the always-skills, so per-request overrides win.
 
 ## 🦴 Gotchas
 
