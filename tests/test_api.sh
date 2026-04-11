@@ -426,7 +426,7 @@ test_api_mcp_init() {
         -d "$_MCP_INIT")
     assert_contains "$out" "mcp-session-id" "mcp initialize returns session id header" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
     assert_contains "$out" "protocolVersion" "mcp initialize returns protocol version" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
-    assert_contains "$out" "claude-code" "mcp initialize returns server name" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
+    assert_contains "$out" "claudebox" "mcp initialize returns server name" || { _api_stop "${API_CONTAINER}-mcp"; return 1; }
 
     echo "OK: api_mcp_init"
     _api_stop "${API_CONTAINER}-mcp"

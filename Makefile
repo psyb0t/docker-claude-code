@@ -1,5 +1,5 @@
 # Docker image configuration
-IMAGE_NAME := psyb0t/claude-code
+IMAGE_NAME := psyb0t/claudebox
 TAG := latest
 
 .PHONY: build build-minimal build-all clean help

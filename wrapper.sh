@@ -2,8 +2,8 @@
 
 dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
 
-CLAUDE_IMAGE="${CLAUDE_IMAGE:-psyb0t/claude-code:latest}"
-[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_IMAGE="psyb0t/claude-code:latest-minimal"
+CLAUDE_IMAGE="${CLAUDE_IMAGE:-psyb0t/claudebox:latest}"
+[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_IMAGE="psyb0t/claudebox:latest-minimal"
 
 # Git identity - use env var if set, otherwise empty
 CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
@@ -13,7 +13,7 @@ CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
 CLAUDE_DIR="${CLAUDE_DATA_DIR:-$HOME/.claude}"
 
 # SSH dir - override with CLAUDE_SSH_DIR env var
-CLAUDE_SSH="${CLAUDE_SSH_DIR:-$HOME/.ssh/claude-code}"
+CLAUDE_SSH="${CLAUDE_SSH_DIR:-$HOME/.ssh/claudebox}"
 
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')

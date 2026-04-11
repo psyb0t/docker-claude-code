@@ -1,4 +1,4 @@
-# 🧠 docker-claude-code
+# 🧠 claudebox
 
 [Claude Code](https://claude.com/product/claude-code) in a Docker container. No host installs. No permission nightmares. Just vibes and `--dangerously-skip-permissions`. Use it as a CLI, HTTP API, OpenAI-compatible endpoint, MCP server, or Telegram bot.
 
@@ -48,7 +48,7 @@ Pick your poison:
 Everything pre-installed. Go, Python, Node, C/C++, Terraform, kubectl, database clients, linters, formatters, the works. Big image, zero wait time. Claude wakes up and gets to work immediately.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/claudebox/master/install.sh | bash
 ```
 
 ### `latest-minimal` — diet mode
@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/in
 Just enough to run Claude: Ubuntu, git, curl, Node.js, Docker. Claude has passwordless sudo so it'll install whatever it needs on the fly. Smaller pull, but first run takes longer while Claude figures out its life choices.
 
 ```bash
-CLAUDE_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
+CLAUDE_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/claudebox/master/install.sh | bash
 ```
 
 Pro tip: use `~/.claude/init.d/*.sh` hooks to pre-install your tools on first container create instead of waiting for Claude to `apt-get` its way through life.
@@ -124,14 +124,14 @@ The full image is a buffet of dev tools. Here's what Claude gets to play with:
 
 ```bash
 # full image (recommended)
-curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/claudebox/master/install.sh | bash
 
 # minimal image
-CLAUDE_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash
+CLAUDE_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/claudebox/master/install.sh | bash
 
-# custom binary name (if you already have a native `claude` install)
-curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/install.sh | bash -s -- dclaude
-# or: CLAUDE_BIN_NAME=dclaude curl -fsSL .../install.sh | bash
+# custom binary name (if you want something other than claudebox)
+curl -fsSL https://raw.githubusercontent.com/psyb0t/claudebox/master/install.sh | bash -s -- claude
+# or: CLAUDE_BIN_NAME=claude curl -fsSL .../install.sh | bash
 ```
 
 ### Manual setup
@@ -141,15 +141,15 @@ If you don't trust piping scripts to bash (understandable):
 ```bash
 # 1. create dirs
 mkdir -p ~/.claude
-mkdir -p "$HOME/.ssh/claude-code"
+mkdir -p "$HOME/.ssh/claudebox"
 
 # 2. generate SSH keys (for git push/pull inside the container)
-ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
+ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claudebox/id_ed25519" -N ""
 # then add the pubkey to GitHub/GitLab/wherever
 
 # 3. pull
-docker pull psyb0t/claude-code:latest
-# or: docker pull psyb0t/claude-code:latest-minimal
+docker pull psyb0t/claudebox:latest
+# or: docker pull psyb0t/claudebox:latest-minimal
 
 # 4. check install.sh for how the wrapper script works and wire it up yourself
 ```
@@ -167,9 +167,9 @@ Set these on your host (e.g. `~/.bashrc`). Apply to all modes — the wrapper fo
 | `CLAUDE_GIT_NAME`         | Git commit name inside the container                                            | _(none)_             |
 | `CLAUDE_GIT_EMAIL`        | Git commit email inside the container                                           | _(none)_             |
 | `CLAUDE_DATA_DIR`         | Custom `.claude` data directory                                                 | `~/.claude`          |
-| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                        | `~/.ssh/claude-code` |
+| `CLAUDE_SSH_DIR`          | Custom SSH key directory                                                        | `~/.ssh/claudebox` |
 | `CLAUDE_INSTALL_DIR`      | Custom install path for the wrapper (install-time only)                         | `/usr/local/bin`     |
-| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                          | `claude`             |
+| `CLAUDE_BIN_NAME`         | Custom binary name (install-time only)                                          | `claudebox`          |
 | `CLAUDE_ENV_*`            | Forward custom env vars (prefix is stripped: `CLAUDE_ENV_FOO=bar` → `FOO=bar`) | _(none)_             |
 | `CLAUDE_MOUNT_*`          | Mount extra volumes (path = same in container, or `src:dest`)                   | _(none)_             |
 | `DEBUG`                   | Enable debug logging with timestamps                                            | _(none)_             |
@@ -180,13 +180,13 @@ Either log in interactively or set up a token:
 
 ```bash
 # one-time interactive OAuth setup
-claude setup-token
+claudebox setup-token
 
 # then use the token for programmatic/headless runs
-CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx claude "do stuff"
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx claudebox "do stuff"
 
 # or just use an API key
-ANTHROPIC_API_KEY=sk-ant-api03-xxx claude "do stuff"
+ANTHROPIC_API_KEY=sk-ant-api03-xxx claudebox "do stuff"
 ```
 
 #### Forwarding env vars
@@ -195,7 +195,7 @@ The `CLAUDE_ENV_` prefix lets you inject arbitrary env vars into the container. 
 
 ```bash
 # inside the container: GITHUB_TOKEN=xxx, MY_VAR=hello
-CLAUDE_ENV_GITHUB_TOKEN=xxx CLAUDE_ENV_MY_VAR=hello claude "do stuff"
+CLAUDE_ENV_GITHUB_TOKEN=xxx CLAUDE_ENV_MY_VAR=hello claudebox "do stuff"
 ```
 
 #### Extra volume mounts
@@ -203,10 +203,10 @@ CLAUDE_ENV_GITHUB_TOKEN=xxx CLAUDE_ENV_MY_VAR=hello claude "do stuff"
 The `CLAUDE_MOUNT_` prefix mounts additional directories:
 
 ```bash
-CLAUDE_MOUNT_DATA=/data claude "process the data"                    # same path inside container
-CLAUDE_MOUNT_1=/opt/configs CLAUDE_MOUNT_2=/var/logs claude "go"     # mount multiple
-CLAUDE_MOUNT_STUFF=/host/path:/container/path claude "do stuff"      # explicit mapping
-CLAUDE_MOUNT_RO=/data:/data:ro claude "read the data"                # read-only
+CLAUDE_MOUNT_DATA=/data claudebox "process the data"                    # same path inside container
+CLAUDE_MOUNT_1=/opt/configs CLAUDE_MOUNT_2=/var/logs claudebox "go"     # mount multiple
+CLAUDE_MOUNT_STUFF=/host/path:/container/path claudebox "do stuff"      # explicit mapping
+CLAUDE_MOUNT_RO=/data:/data:ro claudebox "read the data"                # read-only
 ```
 
 If the value contains `:`, it's used as-is (docker `-v` syntax). Otherwise, same path on both sides.
@@ -220,8 +220,8 @@ claude
 Just like the native CLI but in a container. The container persists between runs — `--continue` resumes your last conversation automatically.
 
 ```bash
-claude --update        # opt in to auto-update on this run
-claude --no-continue   # start fresh (skip auto-resume of last conversation)
+claudebox --update        # opt in to auto-update on this run
+claudebox --no-continue   # start fresh (skip auto-resume of last conversation)
 ```
 
 ### Utility commands
@@ -229,13 +229,13 @@ claude --no-continue   # start fresh (skip auto-resume of last conversation)
 Some claude commands are passed through directly:
 
 ```bash
-claude --version      # show claude version
-claude -v             # same thing
-claude doctor         # health check
-claude auth           # manage authentication
-claude setup-token    # interactive OAuth token setup
-claude stop           # stop the running interactive container for this workspace
-claude clear-session  # delete session history for this workspace (next run starts fresh)
+claudebox --version      # show claude version
+claudebox -v             # same thing
+claudebox doctor         # health check
+claudebox auth           # manage authentication
+claudebox setup-token    # interactive OAuth token setup
+claudebox stop           # stop the running interactive container for this workspace
+claudebox clear-session  # delete session history for this workspace (next run starts fresh)
 ```
 
 ### Programmatic mode
@@ -243,20 +243,20 @@ claude clear-session  # delete session history for this workspace (next run star
 Pass a prompt and get a response. `-p` is added automatically. No TTY, works from scripts, cron, CI, whatever.
 
 ```bash
-claude "explain this codebase"                                      # plain text (default)
-claude "explain this codebase" --output-format json                 # JSON response
-claude "list all TODOs" --output-format json-verbose | jq .          # JSON with full tool call history
-claude "list all TODOs" --output-format stream-json | jq .          # streaming NDJSON
-claude "explain this codebase" --model opus                         # pick your model
-claude "review this" --system-prompt "You are a security auditor"   # custom system prompt
-claude "review this" --append-system-prompt "Focus on SQL injection" # append to default
-claude "debug this" --effort max                                    # go hard
-claude "quick question" --effort low                                # go fast
-claude "start over" --no-continue                                   # fresh session
-claude "keep going" --resume abc123-def456                          # resume specific session
+claudebox "explain this codebase"                                      # plain text (default)
+claudebox "explain this codebase" --output-format json                 # JSON response
+claudebox "list all TODOs" --output-format json-verbose | jq .          # JSON with full tool call history
+claudebox "list all TODOs" --output-format stream-json | jq .          # streaming NDJSON
+claudebox "explain this codebase" --model opus                         # pick your model
+claudebox "review this" --system-prompt "You are a security auditor"   # custom system prompt
+claudebox "review this" --append-system-prompt "Focus on SQL injection" # append to default
+claudebox "debug this" --effort max                                    # go hard
+claudebox "quick question" --effort low                                # go fast
+claudebox "start over" --no-continue                                   # fresh session
+claudebox "keep going" --resume abc123-def456                          # resume specific session
 
 # structured output with JSON schema
-claude "extract the author and title" --output-format json \
+claudebox "extract the author and title" --output-format json \
   --json-schema '{"type":"object","properties":{"author":{"type":"string"},"title":{"type":"string"}},"required":["author","title"]}'
 ```
 
@@ -432,7 +432,7 @@ Turn the container into an HTTP API server. Useful for integrating Claude into y
 # docker-compose.yml
 services:
   claude:
-    image: psyb0t/claude-code:latest
+    image: psyb0t/claudebox:latest
     ports:
       - "8080:8080"
     environment:
@@ -532,7 +532,7 @@ curl -X POST http://localhost:8080/openai/v1/chat/completions \
   -d '{"model":"haiku","messages":[{"role":"user","content":"hello"}],"stream":true}'
 ```
 
-Use the same model aliases as the CLI (`haiku`, `sonnet`, `opus`). `system` role messages become `--system-prompt`. Pass `reasoning_effort` (`low`/`medium`/`high`) to control effort — maps to claude's `--effort`. `temperature`, `max_tokens`, `tools`, and other OpenAI-specific fields are accepted but silently ignored. Provider prefixes are stripped automatically (`claude-code/haiku` → `haiku`).
+Use the same model aliases as the CLI (`haiku`, `sonnet`, `opus`). `system` role messages become `--system-prompt`. Pass `reasoning_effort` (`low`/`medium`/`high`) to control effort — maps to claude's `--effort`. `temperature`, `max_tokens`, `tools`, and other OpenAI-specific fields are accepted but silently ignored. Provider prefixes are stripped automatically (`claudebox/haiku` → `haiku`).
 
 **Message handling:**
 - **Single user message** — sent directly as the prompt (fast path, no overhead).
@@ -557,7 +557,7 @@ Custom headers for claude-specific behavior:
 import litellm
 
 response = litellm.completion(
-    model="claude-code/haiku",
+    model="claudebox/haiku",
     messages=[{"role": "user", "content": "hello"}],
     api_base="http://localhost:8080/openai/v1",
     api_key="your-secret-token",  # or any string if no token set
@@ -572,7 +572,7 @@ The API also exposes an MCP (Model Context Protocol) server at `/mcp/` using str
 ```json
 {
   "mcpServers": {
-    "claude-code": {
+    "claudebox": {
       "url": "http://localhost:8080/mcp/",
       "headers": { "Authorization": "Bearer your-secret-token" }
     }
@@ -644,7 +644,7 @@ Per-chat options: `workspace`, `model`, `effort`, `continue`, `system_prompt`, `
 # docker-compose.yml
 services:
   claude-telegram:
-    image: psyb0t/claude-code:latest
+    image: psyb0t/claudebox:latest
     environment:
       - CLAUDE_MODE_TELEGRAM=1
       - CLAUDE_TELEGRAM_BOT_TOKEN=123456:ABC-DEF

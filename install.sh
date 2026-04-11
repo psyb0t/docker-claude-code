@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-BIN_NAME="${1:-${CLAUDE_BIN_NAME:-claude}}"
+BIN_NAME="${1:-${CLAUDE_BIN_NAME:-claudebox}}"
 INSTALL_DIR="${CLAUDE_INSTALL_DIR:-/usr/local/bin}"
 BIN_PATH="$INSTALL_DIR/$BIN_NAME"
 
@@ -16,26 +16,26 @@ echo "📁 Creating ~/.claude directory..."
 mkdir -p ~/.claude
 
 echo "🔐 Creating SSH directory for Claude Code..."
-mkdir -p "$HOME/.ssh/claude-code"
+mkdir -p "$HOME/.ssh/claudebox"
 
-if [ -f "$HOME/.ssh/claude-code/id_ed25519" ]; then
-	echo "🔑 SSH key already exists at $HOME/.ssh/claude-code/id_ed25519"
+if [ -f "$HOME/.ssh/claudebox/id_ed25519" ]; then
+	echo "🔑 SSH key already exists at $HOME/.ssh/claudebox/id_ed25519"
 	read -rp "   Replace existing key? [y/N] " response
 	if [[ "$response" =~ ^[Yy]$ ]]; then
 		echo "🗝️ Generating new SSH key for Claude..."
-		ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
+		ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claudebox/id_ed25519" -N ""
 	else
 		echo "   Keeping existing key."
 	fi
 else
 	echo "🗝️ Generating SSH key for Claude..."
-	ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claude-code/id_ed25519" -N ""
+	ssh-keygen -t ed25519 -C "claude@claude.ai" -f "$HOME/.ssh/claudebox/id_ed25519" -N ""
 fi
 
 CLAUDE_TAG="latest"
 [ -n "$CLAUDE_MINIMAL" ] && CLAUDE_TAG="latest-minimal"
 echo "📦 Pulling Claude Code image (tag: $CLAUDE_TAG)..."
-docker pull "psyb0t/claude-code:$CLAUDE_TAG"
+docker pull "psyb0t/claudebox:$CLAUDE_TAG"
 
 # get wrapper.sh — from same dir if running locally, otherwise download from GitHub
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-/dev/null}")" 2>/dev/null && pwd)"
@@ -45,7 +45,7 @@ if [ -f "$SCRIPT_DIR/wrapper.sh" ]; then
 	cp "$SCRIPT_DIR/wrapper.sh" "$WRAPPER_TMP"
 else
 	echo "📝 Downloading wrapper.sh..."
-	curl -fsSL "https://raw.githubusercontent.com/psyb0t/docker-claude-code/master/wrapper.sh" -o "$WRAPPER_TMP"
+	curl -fsSL "https://raw.githubusercontent.com/psyb0t/claudebox/master/wrapper.sh" -o "$WRAPPER_TMP"
 fi
 
 echo "📝 Installing $BIN_NAME to $BIN_PATH..."
@@ -58,4 +58,4 @@ sudo chmod +x "$BIN_PATH"
 echo "✅ Claude Code setup complete! You can now use '$BIN_NAME' command from any directory."
 echo ""
 echo "🔑 Don't forget to add your public key to GitHub:"
-echo "   $HOME/.ssh/claude-code/id_ed25519.pub"
+echo "   $HOME/.ssh/claudebox/id_ed25519.pub"

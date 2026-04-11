@@ -1,9 +1,9 @@
 #!/bin/bash
 
-IMAGE_NAME="psyb0t/claude-code"
+IMAGE_NAME="psyb0t/claudebox"
 TEST_TAG="test"
 IMAGE="${IMAGE_NAME}:${TEST_TAG}"
-CONTAINER_PREFIX="claude-code-test"
+CONTAINER_PREFIX="claudebox-test"
 WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXTRA_CONTAINERS=()
 ALL_TESTS=()
@@ -155,7 +155,7 @@ start_container() {
 # ── setup / cleanup ─────────────────────────────────────────────────────────
 
 setup() {
-    echo "building docker-claude-code image (--target minimal)..."
+    echo "building claudebox image (--target minimal)..."
     docker build --target minimal -t "$IMAGE" "$WORKDIR" >/dev/null 2>&1
 }
 

@@ -564,7 +564,7 @@ def _save_oai_image(url: str) -> Optional[str]:
 
     if url.startswith(("http://", "https://")):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "claude-code-api"})
+            req = urllib.request.Request(url, headers={"User-Agent": "claudebox-api"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 content_type = resp.headers.get("Content-Type", "application/octet-stream")
                 mime = content_type.split(";")[0].strip()
@@ -837,7 +837,7 @@ async def openai_chat_completions(
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-_mcp = FastMCP("claude-code", streamable_http_path="/")
+_mcp = FastMCP("claudebox", streamable_http_path="/")
 
 
 @_mcp.tool()
