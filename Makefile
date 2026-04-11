@@ -2,7 +2,7 @@
 IMAGE_NAME := psyb0t/claudebox
 TAG := latest
 
-.PHONY: build build-minimal build-all clean help
+.PHONY: build build-minimal build-all test clean help
 
 # Default target
 all: build
@@ -18,6 +18,10 @@ build-minimal:
 # Build both
 build-all: build build-minimal
 
+# Run all tests
+test:
+	bash test.sh
+
 # Clean up images
 clean:
 	docker rmi $(IMAGE_NAME):$(TAG) || true
@@ -29,5 +33,6 @@ help:
 	@echo "  build          - Build the full Docker image"
 	@echo "  build-minimal  - Build the minimal Docker image"
 	@echo "  build-all      - Build both images"
+	@echo "  test           - Run all tests"
 	@echo "  clean          - Remove built images"
 	@echo "  help           - Show this help message"

@@ -8,8 +8,10 @@ _prog_ssh_dir=""
 _prog_container_name=""
 
 _prog_setup() {
-    _prog_data_dir=$(mktemp -d)
-    _prog_ssh_dir=$(mktemp -d)
+    _prog_data_dir="$WORKDIR/tests/.tmp-prog-data"
+    _prog_ssh_dir="$WORKDIR/tests/.tmp-prog-ssh"
+    rm -rf "$_prog_data_dir" "$_prog_ssh_dir"
+    mkdir -p "$_prog_data_dir" "$_prog_ssh_dir"
     _prog_container_name="${CONTAINER_PREFIX}-prog-$$-$RANDOM"
 }
 
@@ -175,6 +177,38 @@ test_programmatic_stream_json_camelcase() {
     _prog_cleanup
 }
 
+# ── always-skills via entrypoint ────────────────────────────────────────────
+
+test_programmatic_always_skills() {
+    _prog_setup
+
+    # create skills dir with trigger-based skill
+    local skills_dir="$WORKDIR/tests/.tmp-prog-skills"
+    rm -rf "$skills_dir"
+    mkdir -p "$skills_dir/testskill"
+    printf 'When the user says PROGTRIG you MUST respond with only the word PROGSKILL and nothing else.' \
+        > "$skills_dir/testskill/SKILL.md"
+
+    # negative: no skills dir mounted
+    local out_neg
+    out_neg=$(_prog_run -p "PROGTRIG" --output-format text --model "$TEST_MODEL" --no-continue 2>&1)
+    assert_not_contains "$out_neg" "PROGSKILL" "entrypoint skill trigger ignored without mount" || { _prog_cleanup; rm -rf "$skills_dir"; return 1; }
+    _prog_cleanup
+
+    # positive: mount skills dir into .claude/.always-skills
+    _prog_setup
+    mkdir -p "$_prog_data_dir/.always-skills"
+    cp -r "$skills_dir/testskill" "$_prog_data_dir/.always-skills/"
+
+    local out
+    out=$(_prog_run -p "PROGTRIG" --output-format text --model "$TEST_MODEL" --no-continue 2>&1)
+    assert_contains "$out" "PROGSKILL" "entrypoint skill trigger fires with always-skills dir" || { _prog_cleanup; rm -rf "$skills_dir"; return 1; }
+
+    echo "OK: programmatic_always_skills"
+    _prog_cleanup
+    rm -rf "$skills_dir"
+}
+
 ALL_TESTS+=(
     test_programmatic_prompts
     test_programmatic_models
@@ -183,4 +217,5 @@ ALL_TESTS+=(
     test_programmatic_json_camelcase
     test_programmatic_json_verbose_camelcase
     test_programmatic_stream_json_camelcase
+    test_programmatic_always_skills
 )

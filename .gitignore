@@ -3,5 +3,6 @@ CLAUDE.md
 git-update.sh
 docker-compose.dev.yaml
 tests/.env
+tests/.tmp-*/
 base/
-tests/.tmp-skills/
+desc.txt

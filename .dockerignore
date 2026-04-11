@@ -1,0 +1,9 @@
+tests/
+.research_files/
+.git/
+.github/
+base/
+*.md
+desc.txt
+git-update.sh
+docker-compose.dev.yaml

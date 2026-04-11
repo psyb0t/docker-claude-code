@@ -8,10 +8,11 @@ TEST_SSH_DIR=""
 _wrapper_container_name=""
 
 _wrapper_setup() {
-    TEST_DATA_DIR=$(mktemp -d)
-    TEST_SSH_DIR=$(mktemp -d)
+    TEST_DATA_DIR="$WORKDIR/tests/.tmp-wrap-data"
+    TEST_SSH_DIR="$WORKDIR/tests/.tmp-wrap-ssh"
+    rm -rf "$TEST_DATA_DIR" "$TEST_SSH_DIR"
+    mkdir -p "$TEST_DATA_DIR" "$TEST_SSH_DIR"
     _wrapper_container_name="${CONTAINER_PREFIX}-wrap-$$-$RANDOM"
-    mkdir -p "$TEST_DATA_DIR"
 }
 
 _wrapper_cleanup() {
@@ -195,28 +196,18 @@ test_wrapper_flag_passthrough() {
 test_wrapper_env_forwarding() {
     _wrapper_setup
 
-    # the wrapper forwards CLAUDE_ENV_* vars into the container (stripping prefix)
-    # use a prompt that reads the env var inside the container
+    # tell claude to run a bash command that prints the env var — proves it's actually inside the container
     local out
-    CLAUDE_ENV_MY_TEST_VAR="ENVFORWARD42" \
+    out=$(CLAUDE_ENV_MY_TEST_VAR="ENVFORWARD42" \
     CLAUDE_IMAGE="$IMAGE" \
     CLAUDE_DATA_DIR="$TEST_DATA_DIR" \
     CLAUDE_SSH_DIR="$TEST_SSH_DIR" \
     CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
     CLAUDE_CONTAINER_NAME="$_wrapper_container_name" \
-    bash "$WRAPPER" -p "print the value of the MY_TEST_VAR environment variable, respond with ONLY the value" \
-        --model "$TEST_MODEL" --output-format text --no-continue 2>&1
-    # can't reliably assert the LLM will print it, so just verify the container got the env var
-    local env_check
-    env_check=$(CLAUDE_ENV_MY_TEST_VAR="ENVFORWARD42" \
-    CLAUDE_IMAGE="$IMAGE" \
-    CLAUDE_DATA_DIR="$TEST_DATA_DIR" \
-    CLAUDE_SSH_DIR="$TEST_SSH_DIR" \
-    CLAUDE_CONTAINER_NAME="${_wrapper_container_name}-envchk" \
-    docker run --rm -e "MY_TEST_VAR=ENVFORWARD42" --entrypoint bash "$IMAGE" -c 'echo $MY_TEST_VAR' 2>&1)
-    assert_eq "$env_check" "ENVFORWARD42" "env var reaches container"
+    bash "$WRAPPER" -p 'run: echo $MY_TEST_VAR' \
+        --model "$TEST_MODEL" --output-format text --no-continue 2>&1)
+    assert_contains "$out" "ENVFORWARD42" "env var accessible inside container via wrapper"
 
-    docker rm -f "${_wrapper_container_name}-envchk" >/dev/null 2>&1 || true
     _wrapper_cleanup
 }
 
@@ -225,22 +216,21 @@ test_wrapper_env_forwarding() {
 test_wrapper_volume_mounting() {
     _wrapper_setup
 
-    local mount_dir
-    mount_dir=$(mktemp -d)
-    echo "MOUNTTEST" > "$mount_dir/testfile.txt"
+    local mount_dir="$WORKDIR/tests/.tmp-mount"
+    rm -rf "$mount_dir"
+    mkdir -p "$mount_dir"
+    echo "MOUNTTEST99" > "$mount_dir/testfile.txt"
 
-    # verify CLAUDE_MOUNT_* is picked up by the wrapper and added to DOCKER_ARGS
-    # by checking DEBUG output which logs "mounting volume: ..."
+    # verify mount works: tell claude to read the file from inside the container
     local out
-    out=$(DEBUG=true \
-    CLAUDE_MOUNT_TESTDIR="$mount_dir" \
+    out=$(CLAUDE_MOUNT_TESTDIR="$mount_dir" \
     CLAUDE_IMAGE="$IMAGE" \
     CLAUDE_DATA_DIR="$TEST_DATA_DIR" \
     CLAUDE_SSH_DIR="$TEST_SSH_DIR" \
     CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
     CLAUDE_CONTAINER_NAME="${_wrapper_container_name}-mnt" \
-    bash "$WRAPPER" -p "say ok" --model "$TEST_MODEL" --output-format text --no-continue 2>&1)
-    assert_contains "$out" "mounting volume: $mount_dir" "CLAUDE_MOUNT_* forwarded"
+    bash "$WRAPPER" -p "run: cat $mount_dir/testfile.txt" --model "$TEST_MODEL" --output-format text --no-continue 2>&1)
+    assert_contains "$out" "MOUNTTEST99" "CLAUDE_MOUNT_* file accessible inside container"
 
     docker rm -f "${_wrapper_container_name}-mnt" "${_wrapper_container_name}-mnt_prog" >/dev/null 2>&1 || true
     rm -rf "$mount_dir"
