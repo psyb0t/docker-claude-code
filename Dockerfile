@@ -1,13 +1,13 @@
-FROM ubuntu:22.04 AS base
+FROM ubuntu:24.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # faster apt mirror — Cloudflare
-RUN sed -i 's|http://archive.ubuntu.com|http://cloudflaremirrors.com|g; s|http://security.ubuntu.com|http://cloudflaremirrors.com|g' /etc/apt/sources.list || true
+RUN sed -i 's|http://archive.ubuntu.com|http://cloudflaremirrors.com|g; s|http://security.ubuntu.com|http://cloudflaremirrors.com|g' /etc/apt/sources.list.d/ubuntu.sources || true
 
 # core essentials
 RUN apt-get update && apt-get install -y \
-    git curl wget gnupg ca-certificates sudo apt-transport-https \
+    git curl wget gnupg ca-certificates sudo \
     software-properties-common lsb-release jq \
     && rm -rf /var/lib/apt/lists/*
 
@@ -17,9 +17,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
 
 # python3 + api server deps (needed for CLAUDE_MODE_API)
 RUN apt-get update && apt-get install -y \
-    python3 python3-pip \
+    python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --no-cache-dir fastapi uvicorn python-telegram-bot pyyaml mcp
+    && pip3 install --no-cache-dir --break-system-packages --ignore-installed fastapi uvicorn python-telegram-bot pyyaml mcp
 
 # docker (needed for docker-in-docker)
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
@@ -28,8 +28,9 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
-# create 'claude' user with sudo and docker access
-RUN useradd -u 1000 -ms /bin/bash claude && \
+# create 'claude' user with sudo and docker access (remove ubuntu user that ships at uid 1000)
+RUN userdel -r ubuntu 2>/dev/null || true && \
+    useradd -u 1000 -ms /bin/bash claude && \
     usermod -aG sudo claude && \
     usermod -aG docker claude && \
     mkdir -p /home/claude/.ssh && \
@@ -105,7 +106,7 @@ RUN apt-get update && apt-get install -y \
 
 # cli tools
 RUN apt-get update && apt-get install -y \
-    tree fd-find ripgrep bat exa silversearcher-ag \
+    tree fd-find ripgrep bat eza silversearcher-ag \
     shellcheck shfmt httpie gh \
     && rm -rf /var/lib/apt/lists/*
 
@@ -116,7 +117,7 @@ RUN apt-get update && apt-get install -y \
 
 # database clients
 RUN apt-get update && apt-get install -y \
-    sqlite3 postgresql-client mysql-client redis-tools \
+    sqlite3 postgresql-client default-mysql-client redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # pyenv dependencies
