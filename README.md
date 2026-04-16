@@ -288,6 +288,8 @@ You can also pin specific model versions using full model names like `claude-opu
   "subtype": "success",
   "isError": false,
   "result": "the response text",
+  "runId": "abc123def456",
+  "workspace": "/workspaces/myproject",
   "numTurns": 1,
   "durationMs": 3100,
   "totalCostUsd": 0.156,
@@ -468,8 +470,55 @@ curl -X POST http://localhost:8080/run \
 | `noContinue`         | bool   | If true, start a fresh session instead of continuing the previous one    | `false`         |
 | `resume`             | string | Resume a specific session by its session ID                              | _(none)_        |
 | `fireAndForget`      | bool   | If true, the Claude process keeps running even if the HTTP client disconnects | `false`    |
+| `async`              | bool   | If true, return immediately with a `runId` and run in the background     | `false`         |
+
+Every response includes a `runId` field that uniquely identifies the run.
 
 Returns `application/json`. Returns **409** if the workspace is already busy with another request.
+
+**Async runs** — when `"async": true` is set, the request returns immediately with a run ID:
+
+```bash
+# fire off an async run
+curl -X POST http://localhost:8080/run \
+  -H "Authorization: Bearer token" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "refactor this entire codebase", "workspace": "myproject", "async": true}'
+# → {"runId": "abc123", "workspace": "/workspaces/myproject", "status": "running"}
+
+# poll for the result
+curl "http://localhost:8080/run/result?runId=abc123" -H "Authorization: Bearer token"
+# while running → {"runId": "abc123", "workspace": "/workspaces/myproject", "status": "running"}
+# when done    → full result JSON with runId + workspace injected (see below)
+```
+
+Completed results are cached until first read — once you fetch a completed result, it is purged from the cache. Results that are never read are automatically purged after 6 hours. Failed and cancelled results are also returned once and purged.
+
+**`GET /run/result?runId=X`** — poll for the result of an async (or any) run:
+
+| Status        | Response                                            |
+| ------------- | --------------------------------------------------- |
+| `running`     | `{"runId": "...", "workspace": "...", "status": "running"}` |
+| `completed`   | Full result JSON with `runId` and `workspace` injected (then purged from cache) |
+| `failed`      | `{"runId": "...", "workspace": "...", "status": "failed", "error": "..."}` (then purged) |
+| `cancelled`   | `{"runId": "...", "workspace": "...", "status": "cancelled"}` (then purged) |
+
+Returns **404** if the run ID is not found (never existed, already read, or expired).
+
+Completed result example:
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "result": "the response text",
+  "runId": "abc123",
+  "workspace": "/workspaces/myproject",
+  "usage": { "inputTokens": 100, "outputTokens": 50 },
+  "costUsd": 0.003,
+  "sessionId": "..."
+}
+```
 
 **`GET /files/{path}`** — list a directory or download a file:
 
@@ -479,24 +528,63 @@ curl "http://localhost:8080/files/myproject/src" -H "Authorization: Bearer token
 curl "http://localhost:8080/files/myproject/src/main.py" -H "Authorization: Bearer token"   # download a file
 ```
 
+Directory listing response:
+
+```json
+{
+  "path": "myproject/src",
+  "entries": [
+    {"name": "main.py", "type": "file", "size": 1234},
+    {"name": "utils", "type": "dir"}
+  ]
+}
+```
+
+File download returns raw file content with appropriate content type.
+
 **`PUT /files/{path}`** — upload a file (parent directories are created automatically):
 
 ```bash
 curl -X PUT "http://localhost:8080/files/myproject/src/main.py" \
   -H "Authorization: Bearer token" --data-binary @main.py
+# → {"status": "ok", "path": "/workspaces/myproject/src/main.py", "size": 1234}
 ```
 
 **`DELETE /files/{path}`** — delete a file:
 
 ```bash
 curl -X DELETE "http://localhost:8080/files/myproject/src/old.py" -H "Authorization: Bearer token"
+# → {"status": "ok", "path": "/workspaces/myproject/src/old.py"}
 ```
 
-**`GET /health`** — health check endpoint (no authentication required).
+**`GET /health`** — health check endpoint (no authentication required):
 
-**`GET /status`** — returns which workspaces currently have running Claude processes.
+```json
+{"status": "ok"}
+```
 
-**`POST /run/cancel?workspace=X`** — kill a running Claude process in the specified workspace.
+**`GET /status`** — returns busy workspaces and all tracked runs (running, completed, failed, cancelled):
+
+```json
+{
+  "busyWorkspaces": ["/workspaces/myproject"],
+  "runs": [
+    {"runId": "abc123", "workspace": "/workspaces/myproject", "status": "running"}
+  ]
+}
+```
+
+**`POST /run/cancel`** — kill a running Claude process by run ID or workspace:
+
+```bash
+# cancel by run ID (preferred)
+curl -X POST "http://localhost:8080/run/cancel?runId=abc123" -H "Authorization: Bearer token"
+# → {"status": "ok", "runId": "abc123", "workspace": "/workspaces/myproject"}
+
+# cancel by workspace (legacy)
+curl -X POST "http://localhost:8080/run/cancel?workspace=myproject" -H "Authorization: Bearer token"
+# → {"status": "ok", "workspace": "/workspaces/myproject"}
+```
 
 All file paths are relative to `/workspaces`. Path traversal attempts outside the workspace root are blocked and return a 400 error.
 

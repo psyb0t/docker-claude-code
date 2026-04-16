@@ -39,14 +39,26 @@ logging.root.setLevel(logging.DEBUG if _debug else logging.INFO)
 
 _mcp_lifespan_cm = None
 
+# forward declaration — populated after module-level init
+_purge_task_started = False
+
 
 @asynccontextmanager
 async def _lifespan(app):
-    if _mcp_lifespan_cm:
-        async with _mcp_lifespan_cm:
+    global _purge_task_started
+    purge_task = None
+    if not _purge_task_started:
+        _purge_task_started = True
+        purge_task = asyncio.create_task(_purge_stale_results())
+    try:
+        if _mcp_lifespan_cm:
+            async with _mcp_lifespan_cm:
+                yield
+        else:
             yield
-    else:
-        yield
+    finally:
+        if purge_task:
+            purge_task.cancel()
 
 
 app = FastAPI(lifespan=_lifespan)
@@ -127,6 +139,37 @@ if os.path.isdir(ALWAYS_SKILLS_DIR):
 
 busy_workspaces: dict[str, asyncio.subprocess.Process] = {}
 
+# ── async run results cache ──────────────────────────────────────────────────
+
+_RUN_RESULT_TTL = 6 * 3600  # 6 hours
+
+
+class _RunResult:
+    __slots__ = ("run_id", "workspace", "status", "output", "created_at", "error")
+
+    def __init__(self, run_id: str, workspace: str):
+        self.run_id = run_id
+        self.workspace = workspace
+        self.status = "running"  # running | completed | failed | cancelled
+        self.output: Optional[bytes] = None
+        self.created_at = time.time()
+        self.error: Optional[str] = None
+
+
+run_results: dict[str, _RunResult] = {}  # keyed by run_id
+_run_lock = asyncio.Lock()
+
+
+async def _purge_stale_results():
+    """Background task: purge results older than TTL."""
+    while True:
+        await asyncio.sleep(300)  # check every 5 min
+        now = time.time()
+        stale = [rid for rid, r in run_results.items() if now - r.created_at > _RUN_RESULT_TTL]
+        for rid in stale:
+            log.info("purging stale run result: %s", rid)
+            run_results.pop(rid, None)
+
 
 def _check_auth(authorization: Optional[str]):
     if not API_TOKEN:
@@ -166,6 +209,7 @@ class RunRequest(BaseModel):
     no_continue: bool = Field(False, alias="noContinue")
     resume: Optional[str] = None
     fire_and_forget: bool = Field(False, alias="fireAndForget")
+    async_mode: bool = Field(False, alias="async")
 
 
 def _build_args(req: RunRequest, with_continue: bool = False):
@@ -343,18 +387,9 @@ async def _stream(workspace: str, req: RunRequest):
         busy_workspaces.pop(workspace, None)
 
 
-@app.post("/run")
-async def run(
-    request: Request,
-    req: RunRequest,
-    authorization: Optional[str] = Header(None),
-):
-    _check_auth(authorization)
-
+def _prepare_run(req: RunRequest) -> tuple[str, str]:
+    """Validate and prepare a run request. Returns (workspace, run_id)."""
     workspace = _resolve_workspace(req.workspace)
-    log.info("POST /run workspace=%s model=%s format=%s no_continue=%s",
-             workspace, req.model, req.output_format, req.no_continue)
-
     if not os.path.isdir(workspace):
         raise HTTPException(status_code=400, detail=f"workspace not found: {workspace}")
 
@@ -368,13 +403,72 @@ async def run(
     if workspace in busy_workspaces:
         raise HTTPException(status_code=409, detail="workspace busy, retry later")
 
-    busy_workspaces[workspace] = None  # type: ignore[assignment]
+    run_id = uuid.uuid4().hex[:16]
+    return workspace, run_id
+
+
+def _finalize_output(req: RunRequest, output: bytes) -> bytes:
+    """Process raw output into final response content."""
+    if req.output_format == "json-verbose":
+        from jsonpipe import _assemble
+
+        assembled = _assemble(output.decode().splitlines())
+        return json.dumps(assembled).encode()
+    return _normalize_response(output)
+
+
+async def _run_async_task(workspace: str, run_id: str, req: RunRequest):
+    """Background task for async runs."""
+    rr = run_results.get(run_id)
+    if not rr:
+        return
+    output = b""
+    try:
+        async for chunk in _stream(workspace, req):
+            output += chunk
+        async with _run_lock:
+            if rr.status == "cancelled":
+                return
+            rr.output = _finalize_output(req, output)
+            rr.status = "completed"
+            log.info("async run %s completed (%d bytes)", run_id, len(rr.output))
+    except Exception as exc:
+        async with _run_lock:
+            if rr.status == "cancelled":
+                return
+            rr.status = "failed"
+            rr.error = str(exc)
+            log.error("async run %s failed: %s", run_id, exc)
+
+
+@app.post("/run")
+async def run(
+    request: Request,
+    req: RunRequest,
+    authorization: Optional[str] = Header(None),
+):
+    _check_auth(authorization)
+
+    workspace, run_id = _prepare_run(req)
+    log.info("POST /run workspace=%s model=%s format=%s async=%s run_id=%s",
+             workspace, req.model, req.output_format, req.async_mode, run_id)
+
+    async with _run_lock:
+        rr = _RunResult(run_id, workspace)
+        run_results[run_id] = rr
+        busy_workspaces[workspace] = None  # type: ignore[assignment]
+
+    # async mode — kick off background task, return immediately
+    if req.async_mode:
+        asyncio.create_task(_run_async_task(workspace, run_id, req))
+        return {"runId": run_id, "workspace": workspace, "status": "running"}
+
+    # sync mode — block until done
 
     watcher = None
     if not req.fire_and_forget:
 
         async def _disconnect_watcher():
-            """Kill the claude process if the client disconnects."""
             while workspace in busy_workspaces:
                 if await request.is_disconnected():
                     proc = busy_workspaces.get(workspace)
@@ -394,15 +488,22 @@ async def run(
             watcher.cancel()
 
     if not req.fire_and_forget and await request.is_disconnected():
+        rr.status = "failed"
+        rr.error = "client disconnected"
         return Response(status_code=499)
 
-    if req.output_format == "json-verbose":
-        from jsonpipe import _assemble
+    content = _finalize_output(req, output)
+    rr.output = content
+    rr.status = "completed"
 
-        assembled = _assemble(output.decode().splitlines())
-        content = json.dumps(assembled).encode()
-    else:
-        content = _normalize_response(output)
+    # inject runId into response JSON
+    try:
+        parsed = json.loads(content)
+        parsed["runId"] = run_id
+        parsed["workspace"] = workspace
+        content = json.dumps(parsed).encode()
+    except (json.JSONDecodeError, ValueError):
+        pass
 
     return Response(content=content, media_type="application/json")
 
@@ -484,26 +585,92 @@ async def health():
 async def status(authorization: Optional[str] = Header(None)):
     _check_auth(authorization)
 
+    runs = []
+    for rid, rr in run_results.items():
+        runs.append({"runId": rid, "workspace": rr.workspace, "status": rr.status})
+
     return {
         "busyWorkspaces": list(busy_workspaces.keys()),
+        "runs": runs,
     }
+
+
+@app.get("/run/result")
+async def run_result(
+    run_id: str = Query(..., alias="runId"),
+    authorization: Optional[str] = Header(None),
+):
+    _check_auth(authorization)
+
+    async with _run_lock:
+        rr = run_results.get(run_id)
+        if not rr:
+            raise HTTPException(status_code=404, detail="run not found")
+
+        if rr.status == "running":
+            return {"runId": run_id, "workspace": rr.workspace, "status": "running"}
+
+        if rr.status == "cancelled":
+            run_results.pop(run_id, None)
+            return {"runId": run_id, "workspace": rr.workspace, "status": "cancelled"}
+
+        if rr.status == "failed":
+            error = rr.error
+            run_results.pop(run_id, None)
+            return {"runId": run_id, "workspace": rr.workspace, "status": "failed", "error": error}
+
+        # completed — return result and purge
+        output = rr.output or b"{}"
+        workspace = rr.workspace
+        run_results.pop(run_id, None)
+
+    log.info("delivering result for run %s (%d bytes), purging", run_id, len(output))
+
+    try:
+        parsed = json.loads(output)
+        parsed["runId"] = run_id
+        parsed["workspace"] = workspace
+        return parsed
+    except (json.JSONDecodeError, ValueError):
+        return Response(content=output, media_type="application/json")
 
 
 @app.post("/run/cancel")
 async def cancel_run(
     workspace: Optional[str] = Query(None),
+    run_id: Optional[str] = Query(None, alias="runId"),
     authorization: Optional[str] = Header(None),
 ):
     _check_auth(authorization)
 
-    ws = _resolve_workspace(workspace)
+    # cancel by runId
+    if run_id:
+        async with _run_lock:
+            rr = run_results.get(run_id)
+            if not rr:
+                raise HTTPException(status_code=404, detail="run not found")
+            ws = rr.workspace
+            proc = busy_workspaces.get(ws)
+            rr.status = "cancelled"
+            busy_workspaces.pop(ws, None)
+        if proc:
+            proc.kill()
+            await proc.wait()
+        return {"status": "ok", "runId": run_id, "workspace": ws}
 
+    # cancel by workspace (legacy)
+    ws = _resolve_workspace(workspace)
     proc = busy_workspaces.get(ws)
     if not proc:
         raise HTTPException(status_code=404, detail="no running process for workspace")
 
     proc.kill()
     await proc.wait()
+
+    async with _run_lock:
+        for rr in run_results.values():
+            if rr.workspace == ws and rr.status == "running":
+                rr.status = "cancelled"
 
     return {"status": "ok", "workspace": ws}
 

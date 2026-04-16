@@ -659,6 +659,100 @@ test_api_always_skills_path_visible() {
     rm -rf "$_SKILLS_TMP"
 }
 
+# ── async run ────────────────────────────────────────────────────────────────
+
+test_api_async_run() {
+    _api_start "${API_CONTAINER}-async" || return 1
+
+    # fire async run
+    local submit
+    submit=$(post "$API_BASE/run" \
+        "{\"prompt\":\"respond with exactly ASYNCPONG\",\"model\":\"$TEST_MODEL\",\"noContinue\":true,\"async\":true}")
+    assert_contains "$submit" '"runId"' "async: has runId" || { _api_stop "${API_CONTAINER}-async"; return 1; }
+    assert_contains "$submit" '"running"' "async: status is running" || { _api_stop "${API_CONTAINER}-async"; return 1; }
+
+    local run_id
+    run_id=$(echo "$submit" | python3 -c "import json,sys; print(json.load(sys.stdin)['runId'])")
+
+    # poll for result (max 120s)
+    local i result status
+    for i in $(seq 1 24); do
+        sleep 5
+        result=$(curl -sf "$API_BASE/run/result?runId=$run_id")
+        status=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+        [ "$status" != "running" ] && break
+    done
+
+    assert_contains "$result" "ASYNCPONG" "async: result contains response" || { _api_stop "${API_CONTAINER}-async"; return 1; }
+    assert_contains "$result" '"runId"' "async: result has runId" || { _api_stop "${API_CONTAINER}-async"; return 1; }
+
+    # second read should 404 (purged after first read)
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$API_BASE/run/result?runId=$run_id")
+    assert_eq "$code" "404" "async: result purged after read" || { _api_stop "${API_CONTAINER}-async"; return 1; }
+
+    echo "OK: api_async_run"
+    _api_stop "${API_CONTAINER}-async"
+}
+
+test_api_async_cancel() {
+    _api_start "${API_CONTAINER}-async-c" || return 1
+
+    # fire async long-running task
+    local submit
+    submit=$(post "$API_BASE/run" \
+        "{\"prompt\":\"run: sleep 60 && echo done\",\"model\":\"$TEST_MODEL\",\"noContinue\":true,\"async\":true}")
+    local run_id
+    run_id=$(echo "$submit" | python3 -c "import json,sys; print(json.load(sys.stdin)['runId'])")
+    sleep 3
+
+    # cancel by runId
+    local cancel_out
+    cancel_out=$(curl -sf -X POST "$API_BASE/run/cancel?runId=$run_id")
+    assert_contains "$cancel_out" '"ok"' "async cancel returns ok" || { _api_stop "${API_CONTAINER}-async-c"; return 1; }
+
+    # result should show cancelled
+    local result
+    result=$(curl -sf "$API_BASE/run/result?runId=$run_id")
+    assert_contains "$result" '"cancelled"' "async cancel: status is cancelled" || { _api_stop "${API_CONTAINER}-async-c"; return 1; }
+
+    echo "OK: api_async_cancel"
+    _api_stop "${API_CONTAINER}-async-c"
+}
+
+test_api_run_has_runid() {
+    _api_start "${API_CONTAINER}-runid" || return 1
+
+    local out
+    out=$(post "$API_BASE/run" \
+        "{\"prompt\":\"respond with exactly RUNIDTEST\",\"model\":\"$TEST_MODEL\",\"noContinue\":true}")
+    assert_contains "$out" '"runId"' "sync run has runId" || { _api_stop "${API_CONTAINER}-runid"; return 1; }
+    assert_contains "$out" "RUNIDTEST" "sync run has response" || { _api_stop "${API_CONTAINER}-runid"; return 1; }
+
+    echo "OK: api_run_has_runid"
+    _api_stop "${API_CONTAINER}-runid"
+}
+
+test_api_status_shows_runs() {
+    _api_start "${API_CONTAINER}-stat" || return 1
+
+    # fire async so it shows up in status
+    post "$API_BASE/run" \
+        "{\"prompt\":\"run: sleep 30 && echo done\",\"model\":\"$TEST_MODEL\",\"noContinue\":true,\"async\":true}" >/dev/null
+    sleep 2
+
+    local out
+    out=$(curl -sf "$API_BASE/status")
+    assert_contains "$out" '"runs"' "status has runs array" || { _api_stop "${API_CONTAINER}-stat"; return 1; }
+    assert_contains "$out" '"running"' "status shows running run" || { _api_stop "${API_CONTAINER}-stat"; return 1; }
+
+    # cancel to clean up
+    curl -sf -X POST "$API_BASE/run/cancel" >/dev/null 2>&1 || true
+
+    echo "OK: api_status_shows_runs"
+    _api_stop "${API_CONTAINER}-stat"
+}
+
 ALL_TESTS+=(
     test_api_endpoints
     test_api_run
@@ -684,4 +778,8 @@ ALL_TESTS+=(
     test_api_always_skills_path_visible
     test_api_always_skills_mcp
     test_api_always_skills_openai
+    test_api_async_run
+    test_api_async_cancel
+    test_api_run_has_runid
+    test_api_status_shows_runs
 )

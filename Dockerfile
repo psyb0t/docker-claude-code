@@ -2,6 +2,9 @@ FROM ubuntu:22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# faster apt mirror — Cloudflare
+RUN sed -i 's|http://archive.ubuntu.com|http://cloudflaremirrors.com|g; s|http://security.ubuntu.com|http://cloudflaremirrors.com|g' /etc/apt/sources.list || true
+
 # core essentials
 RUN apt-get update && apt-get install -y \
     git curl wget gnupg ca-certificates sudo apt-transport-https \
