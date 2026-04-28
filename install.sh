@@ -45,7 +45,7 @@ if [ -f "$SCRIPT_DIR/wrapper.sh" ]; then
 	cp "$SCRIPT_DIR/wrapper.sh" "$WRAPPER_TMP"
 else
 	echo "📝 Downloading wrapper.sh..."
-	if ! curl -fsSL "https://raw.githubusercontent.com/psyb0t/claudebox/master/wrapper.sh" -o "$WRAPPER_TMP"; then
+	if ! curl -fsSL "https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/wrapper.sh" -o "$WRAPPER_TMP"; then
 		echo "❌ Failed to download wrapper.sh"
 		rm -f "$WRAPPER_TMP"
 		exit 1
