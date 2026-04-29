@@ -89,3 +89,7 @@ services:
 | `/reload`                     | Hot-reload the YAML config file without restarting the container |
 
 Claude can send files back by including `[SEND_FILE: relative/path]` in its response text. Images are sent as photos, videos as video messages, and everything else as document attachments. Long responses are automatically split across multiple messages to stay within Telegram's 4096-character limit.
+
+## Combined with cron mode
+
+If you also set `CLAUDEBOX_MODE_CRON=1` in the same container, finished cron jobs are posted to Telegram and you can **reply to those messages** to interrogate the run with full job context auto-injected (job name, instruction, result). The whole chat also gets a rolling summary of recent cron runs in its system prompt so Claude can answer cron questions anywhere in the conversation. See [Cron Mode → Combined cron + telegram mode](cron.md#combined-cron--telegram-mode) for the full setup.

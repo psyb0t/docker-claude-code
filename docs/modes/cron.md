@@ -111,6 +111,53 @@ The scheduler is a single foreground process — `docker logs` shows every tick 
 
 To target external systems (Telegram, Discord, Slack, email, web hooks, ...), tell Claude in the instruction to use an MCP server you've configured under `~/.claude` — it has full tool access during cron runs just like in interactive mode. See [Customization → MCP servers](../customization.md#mcp-servers) for setup.
 
+## Combined cron + telegram mode
+
+Set both `CLAUDEBOX_MODE_CRON=1` and `CLAUDEBOX_MODE_TELEGRAM=1` in the same container and you get a single workspace shared between the cron scheduler (background) and the telegram bot (foreground). When the bot exits, the scheduler is killed too.
+
+In this mode:
+
+1. **Cron jobs post their results to Telegram automatically.** Set `telegram_chat_id` in your `cron.yaml` (root-level default and/or per-job override). Each completed job sends its output as a normal Telegram message.
+
+2. **You can reply to those messages** (Telegram's native reply-quote, or just hit "Reply" on the cron notification) to ask Claude follow-ups about the run. The bot detects that you replied to a cron notification, looks up the original job (name, fired-at timestamp, instruction, result), and prepends that full context to your prompt — so a fresh Claude session can answer "what file did you write again?" without needing `--continue`.
+
+3. **The whole chat is cron-aware.** Even non-reply messages get the most recent ~10 cron runs injected via `--append-system-prompt`, so Claude can answer questions about cron activity anywhere in the chat.
+
+Cron-reply prompts run in a fresh session (no `--continue`); regular telegram messages still continue the chat's session as usual. Sent message IDs and job context are stored in `~/.claude/cron/telegram_messages.json` (auto-pruned to the last 200 entries).
+
+Example combined-mode `docker-compose.yml`:
+
+```yaml
+services:
+  claudebox-cron-tg:
+    image: psyb0t/claudebox:latest
+    environment:
+      - CLAUDEBOX_MODE_CRON=1
+      - CLAUDEBOX_MODE_TELEGRAM=1
+      - CLAUDEBOX_MODE_CRON_FILE=/home/claude/.claude/cron.yaml
+      - CLAUDEBOX_WORKSPACE=/workspace
+      - CLAUDEBOX_TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+      - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
+    volumes:
+      - ./cron.yaml:/home/claude/.claude/cron.yaml:ro
+      - ./workspace:/workspace
+      - ~/.claude:/home/claude/.claude
+      - ~/telegram-workspaces:/workspaces
+```
+
+`telegram.yml` works exactly as in [telegram mode](telegram.md). `cron.yaml` adds:
+
+```yaml
+telegram_chat_id: 698282139    # default for all jobs
+
+jobs:
+  - name: log_checker
+    schedule: "*/10 * * * *"
+    instruction: |
+      Check /var/log for anything noteworthy in the last 10 minutes.
+    # telegram_chat_id: -100123 # optional per-job override
+```
+
 ## Environment variables
 
 | Variable                   | Description                                                  | Default      |
