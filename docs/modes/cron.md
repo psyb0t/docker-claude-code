@@ -5,15 +5,19 @@ Run scheduled Claude jobs from a YAML cron file. Each job has a cron expression 
 1. **Write a cron yaml** (see `cron.yml.example`):
 
 ```yaml
+model: haiku          # default model for all jobs; per-job "model" overrides this
+append_system_prompt: |
+  The current date and time is {system_datetime}.
+
 jobs:
   - name: every_30_seconds
-    schedule: "*/30 * * * * *" # 6-field = sec min hr dom mon dow
-    model: haiku # optional
+    schedule: "*/30 * * * * *"   # 6-field = sec min hr dom mon dow
     instruction: |
       Write the current UTC timestamp to ./status.txt.
 
   - name: hourly_repo_check
-    schedule: "0 * * * *" # 5-field = standard cron, every hour at :00
+    schedule: "0 * * * *"        # 5-field = standard cron, every hour at :00
+    model: sonnet                 # override the default for this job
     instruction: |
       Look at the git log for the last hour. Summarize commits.
       If you have an MCP server configured (e.g. for Telegram), use it to
@@ -21,12 +25,46 @@ jobs:
 
   - name: nightly_cleanup
     schedule: "0 3 * * *"
+    model: opus
+    system_prompt: |              # replaces system prompt entirely for this job
+      You are a cleanup agent. Current time: {system_datetime}.
     instruction: |
       Find files older than 7 days under ./tmp and delete them.
       Report what you removed.
 ```
 
-**Cron syntax**: standard 5-field (`min hr dom mon dow`) for minute resolution, or 6-field (`sec min hr dom mon dow`) for sub-minute resolution — `*/30 * * * * *` fires every 30 seconds, `*/5 * * * * *` every 5 seconds, etc.
+## Root-level fields (defaults for all jobs)
+
+| Field                 | Description                                                         |
+| --------------------- | ------------------------------------------------------------------- |
+| `model`               | Default model — per-job `model` overrides it                        |
+| `system_prompt`       | Default system prompt — replaces Claude's built-in system prompt    |
+| `append_system_prompt`| Default text appended to the system prompt                          |
+
+## Per-job fields
+
+Same fields as root-level, plus:
+
+| Field       | Description                                           |
+| ----------- | ----------------------------------------------------- |
+| `name`      | Unique job identifier (alphanumeric, `-`, `_`)        |
+| `schedule`  | Cron expression (5-field or 6-field)                  |
+| `instruction` | The prompt sent to Claude                           |
+
+Per-job values override the root-level defaults.
+
+## Template variables
+
+Use these in `instruction`, `system_prompt`, or `append_system_prompt` — expanded at fire time:
+
+| Variable            | Expands to                                   | Example                      |
+| ------------------- | -------------------------------------------- | ---------------------------- |
+| `{system_datetime}` | Current UTC datetime                         | `2026-04-29 14:35:00 UTC`    |
+| `{job_name}`        | The job's `name` field                       | `hourly_repo_check`          |
+
+## Cron syntax
+
+Standard 5-field (`min hr dom mon dow`) for minute resolution, or 6-field (`sec min hr dom mon dow`) for sub-minute — `*/30 * * * * *` fires every 30 seconds, `*/5 * * * * *` every 5 seconds.
 
 2. **Run it:**
 
@@ -52,7 +90,7 @@ The scheduler is a single foreground process — `docker logs` shows every tick 
 
 To target external systems (Telegram, Discord, Slack, email, web hooks, ...), tell Claude in the instruction to use an MCP server you've configured under `~/.claude` — it has full tool access during cron runs just like in interactive mode. See [Customization → MCP servers](../customization.md#mcp-servers) for setup.
 
-## Cron environment variables
+## Environment variables
 
 | Variable                   | Description                                                  | Default      |
 | -------------------------- | ------------------------------------------------------------ | ------------ |

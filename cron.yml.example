@@ -9,29 +9,32 @@
 # ~/.claude/cron/history/<workspace-slug>/<YYYYMMDD-HHMMSS>-<job-name>/activity.jsonl
 # alongside stderr.log and meta.json.
 #
-# Workspace comes from CLAUDE_WORKSPACE — set it on the container (or via the wrapper
-# which sets it to $PWD). All jobs share the same workspace.
+# Workspace: CLAUDEBOX_WORKSPACE env var (wrapper sets it to $PWD). All jobs share one workspace.
 #
 # Cron syntax:
 #   5-field "min hr dom mon dow"        — standard cron, minute resolution
 #   6-field "sec min hr dom mon dow"    — sub-minute resolution (e.g. */30 fires every 30s)
+#
+# Root-level fields set defaults for all jobs. Per-job fields override them.
+#
+# Template variables (expanded at fire time):
+#   {system_datetime} — current UTC datetime, e.g. "2026-04-29 14:35:00 UTC"
+#
+# Works in: instruction, system_prompt, append_system_prompt
+
+model: haiku                        # default model for all jobs
+append_system_prompt: |             # appended to system prompt for all jobs
+  The current date and time is {system_datetime}.
 
 jobs:
   - name: every_thirty_seconds
     schedule: "*/30 * * * * *"      # 6-field — every 30 seconds
-    model: haiku                    # optional; defaults to claude's default
     instruction: |
       Write the current UTC timestamp to ./status.txt.
 
-  - name: every_five_minutes
-    schedule: "*/5 * * * *"         # 5-field — every 5 minutes
-    model: haiku
-    instruction: |
-      Check the current time and write a one-line status file to ./status.txt
-      with the current UTC timestamp.
-
   - name: hourly_repo_check
     schedule: "0 * * * *"
+    model: sonnet                   # override: use sonnet for this job
     instruction: |
       Look at the git log for the last hour. Summarize commits.
       If you have an MCP server configured for notifications (e.g. Telegram),
@@ -39,7 +42,10 @@ jobs:
 
   - name: nightly_cleanup
     schedule: "0 3 * * *"
-    model: sonnet
+    model: opus
+    system_prompt: |                # override: replace system prompt entirely for this job
+      You are a cleanup agent. Current time: {system_datetime}.
+      Your only job is to find and delete stale files.
     instruction: |
-      Look for stale temporary files in ./tmp older than 7 days.
-      Delete them. Report what you removed.
+      Find files older than 7 days under ./tmp and delete them.
+      Report what you removed.

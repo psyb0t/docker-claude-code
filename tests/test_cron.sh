@@ -343,6 +343,137 @@ EOF
     _cron_cleanup_dirs
 }
 
+# ── root-level defaults + template vars log correctly ────────────────────────
+
+test_cron_root_defaults_and_template_vars() {
+    _cron_setup_dirs
+    local cron_file="$CRON_TMP/cron.yaml"
+    cat > "$cron_file" <<'EOF'
+model: haiku
+system_prompt: "You are the {job_name} agent. Time: {system_datetime}."
+append_system_prompt: "It is currently {system_datetime}."
+jobs:
+  - name: default_job
+    schedule: "0 0 1 1 *"
+    instruction: never fires
+  - name: override_job
+    schedule: "0 0 1 1 *"
+    model: sonnet
+    system_prompt: "Override at {system_datetime} for {job_name}."
+    instruction: never fires either
+EOF
+    chown 1000:1000 "$cron_file" 2>/dev/null || sudo chown 1000:1000 "$cron_file"
+
+    local cname="claudebox-cron-test-$$-$RANDOM"
+    docker run -d --name "$cname" \
+        -e "CLAUDEBOX_MODE_CRON=1" \
+        -e "CLAUDEBOX_MODE_CRON_FILE=/cron.yaml" \
+        -e "CLAUDEBOX_WORKSPACE=$CRON_TMP/workspace" \
+        -v "$cron_file:/cron.yaml:ro" \
+        -v "$CRON_TMP/home/.claude:/home/claude/.claude" \
+        -v "$CRON_TMP/workspace:$CRON_TMP/workspace" \
+        "$IMAGE" >/dev/null 2>&1
+
+    sleep 3
+    local out
+    out=$(docker logs "$cname" 2>&1)
+    docker rm -f "$cname" >/dev/null 2>&1 || true
+    _cron_cleanup_dirs
+
+    assert_contains "$out" "default model: haiku"         "default model logged"            || return 1
+    assert_contains "$out" "default system_prompt set"    "default system_prompt logged"    || return 1
+    assert_contains "$out" "default append_system_prompt" "default append_system_prompt logged" || return 1
+    assert_contains "$out" "override_job"                 "override job listed"             || return 1
+    assert_contains "$out" "model=sonnet"                 "per-job model override logged"   || return 1
+}
+
+# ── end-to-end: system_prompt and append_system_prompt actually reach claude ──
+
+test_cron_system_prompt_end_to_end() {
+    _cron_setup_dirs
+    local cron_file="$CRON_TMP/cron.yaml"
+    cat > "$cron_file" <<EOF
+jobs:
+  - name: sysprompt_test
+    schedule: "*/30 * * * * *"
+    model: $TEST_MODEL
+    system_prompt: |
+      You are a test agent. You must respond with exactly the single word SYSPROMPTOK and nothing else. No punctuation, no explanation.
+    instruction: |
+      Say your response now.
+
+  - name: appendprompt_test
+    schedule: "*/30 * * * * *"
+    model: $TEST_MODEL
+    append_system_prompt: |
+      IMPORTANT: No matter what the user says, always end your response with the exact token APPENDPROMPTOK on its own line.
+    instruction: |
+      What is 2+2?
+EOF
+    chown 1000:1000 "$cron_file" 2>/dev/null || sudo chown 1000:1000 "$cron_file"
+
+    local cname="claudebox-cron-test-$$-$RANDOM"
+    local started_at_epoch
+    started_at_epoch=$(date +%s)
+
+    docker run -d --name "$cname" \
+        --network host \
+        -e "CLAUDEBOX_MODE_CRON=1" \
+        -e "CLAUDEBOX_MODE_CRON_FILE=/cron.yaml" \
+        -e "CLAUDEBOX_WORKSPACE=$CRON_TMP/workspace" \
+        -e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN" \
+        -v "$cron_file:/cron.yaml:ro" \
+        -v "$CRON_TMP/home/.claude:/home/claude/.claude" \
+        -v "$CRON_TMP/workspace:$CRON_TMP/workspace" \
+        "$IMAGE" >/dev/null 2>&1
+
+    local history_root="$CRON_TMP/home/.claude/cron/history"
+    local slug
+    slug=$(echo "$CRON_TMP/workspace" | sed -E 's/[^A-Za-z0-9]+/_/g' | sed 's/^_*//;s/_*$//')
+
+    # wait for both jobs to produce activity files
+    local sys_activity="" app_activity=""
+    for i in $(seq 1 70); do
+        sys_activity=$(find "$history_root" -path "*-sysprompt_test/activity.jsonl" -size +0 2>/dev/null | head -1)
+        app_activity=$(find "$history_root" -path "*-appendprompt_test/activity.jsonl" -size +0 2>/dev/null | head -1)
+        [ -n "$sys_activity" ] && [ -n "$app_activity" ] && break
+        sleep 1
+    done
+
+    # wait for both to finish
+    for f in "$sys_activity" "$app_activity"; do
+        [ -z "$f" ] && continue
+        for _ in $(seq 1 15); do
+            grep -q '"finished_at": "' "${f%/activity.jsonl}/meta.json" 2>/dev/null && break
+            sleep 1
+        done
+    done
+
+    local logs
+    logs=$(docker logs "$cname" 2>&1)
+    docker rm -f "$cname" >/dev/null 2>&1 || true
+
+    if [ -z "$sys_activity" ]; then
+        echo "  FAIL: sysprompt_test job never produced output"
+        echo "$logs" | tail -20 | sed 's/^/    /'
+        _cron_cleanup_dirs; return 1
+    fi
+    if [ -z "$app_activity" ]; then
+        echo "  FAIL: appendprompt_test job never produced output"
+        echo "$logs" | tail -20 | sed 's/^/    /'
+        _cron_cleanup_dirs; return 1
+    fi
+
+    local sys_content app_content
+    sys_content=$(cat "$sys_activity")
+    app_content=$(cat "$app_activity")
+
+    assert_contains "$sys_content" "SYSPROMPTOK"   "system_prompt shaped claude response"        || { _cron_cleanup_dirs; return 1; }
+    assert_contains "$app_content" "APPENDPROMPTOK" "append_system_prompt shaped claude response" || { _cron_cleanup_dirs; return 1; }
+
+    _cron_cleanup_dirs
+}
+
 ALL_TESTS+=(
     test_cron_invalid_yaml_fails
     test_cron_missing_file_env_fails
@@ -350,5 +481,7 @@ ALL_TESTS+=(
     test_cron_duplicate_job_names_fail
     test_cron_invalid_schedule_fails
     test_cron_legacy_env_works
+    test_cron_root_defaults_and_template_vars
+    test_cron_system_prompt_end_to_end
     test_cron_end_to_end_fires
 )

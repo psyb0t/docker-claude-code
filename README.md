@@ -203,7 +203,7 @@ environment:
 
 ### [Cron Mode →](docs/modes/cron.md)
 
-YAML-defined scheduled jobs. Standard 5-field cron or 6-field for sub-minute resolution. Per-job stream-json history under `~/.claude/cron/history/<workspace-slug>/<ts>-<job>/`, foreground process so `docker logs` shows every tick, overlap protection, optional per-job `model` override.
+YAML-defined scheduled jobs. Standard 5-field cron or 6-field for sub-minute resolution. Per-job stream-json history under `~/.claude/cron/history/<workspace-slug>/<ts>-<job>/`, foreground process so `docker logs` shows every tick, overlap protection. Set `model` at the root of the YAML as a default for all jobs; override per-job as needed.
 
 ```yaml
 environment:

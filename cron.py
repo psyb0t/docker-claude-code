@@ -6,6 +6,9 @@ Reads a yaml of jobs (cron schedule + multiline instruction) and fires
 
 Activated when CLAUDEBOX_MODE_CRON=1. Yaml path from CLAUDEBOX_MODE_CRON_FILE.
 Workspace from CLAUDEBOX_WORKSPACE (legacy CLAUDE_WORKSPACE still accepted).
+
+Template variables (expanded at fire time in instruction, system_prompt, append_system_prompt):
+  {system_datetime} — current UTC datetime, e.g. "2026-04-29 14:35:00 UTC"
 """
 from __future__ import annotations
 
@@ -48,12 +51,36 @@ def slugify(path: str) -> str:
     return s or "workspace"
 
 
-def load_jobs(path: str) -> list[dict[str, Any]]:
+def _expand(text: str, fired_at: datetime, job_name: str) -> str:
+    """Replace {system_datetime} and {job_name} in text."""
+    return (
+        text
+        .replace("{system_datetime}", fired_at.strftime("%Y-%m-%d %H:%M:%S UTC"))
+        .replace("{job_name}", job_name)
+    )
+
+
+def _validate_str_field(value: Any, label: str) -> None:
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"'{label}' must be a string")
+
+
+def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     log.debug("loading cron file: %s", path)
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict) or "jobs" not in data:
         raise ValueError("cron file must be a mapping with a 'jobs' key")
+
+    for field in ("model", "system_prompt", "append_system_prompt"):
+        _validate_str_field(data.get(field), field)
+
+    defaults: dict[str, Any] = {
+        "model": data.get("model"),
+        "system_prompt": data.get("system_prompt"),
+        "append_system_prompt": data.get("append_system_prompt"),
+    }
+
     jobs = data["jobs"]
     if not isinstance(jobs, list) or not jobs:
         raise ValueError("'jobs' must be a non-empty list")
@@ -79,17 +106,24 @@ def load_jobs(path: str) -> list[dict[str, Any]]:
             raise ValueError(f"job '{name}': invalid cron schedule: {schedule}")
         if not instruction or not isinstance(instruction, str) or not instruction.strip():
             raise ValueError(f"job '{name}': 'instruction' is required and must be non-empty")
-        model = j.get("model")
-        if model is not None and not isinstance(model, str):
-            raise ValueError(f"job '{name}': 'model' must be a string")
-        valid.append({
+        for field in ("model", "system_prompt", "append_system_prompt"):
+            _validate_str_field(j.get(field), f"job '{name}': {field}")
+
+        effective: dict[str, Any] = {
             "name": name,
             "schedule": schedule,
             "instruction": instruction,
-            "model": model,
-        })
-        log.debug("loaded job: name=%s schedule=%s model=%s", name, schedule, model)
-    return valid
+            "model": j.get("model") or defaults["model"],
+            "system_prompt": j.get("system_prompt") or defaults["system_prompt"],
+            "append_system_prompt": j.get("append_system_prompt") or defaults["append_system_prompt"],
+        }
+        valid.append(effective)
+        log.debug(
+            "loaded job: name=%s schedule=%s model=%s system_prompt=%s append_system_prompt=%s",
+            name, schedule, effective["model"],
+            bool(effective["system_prompt"]), bool(effective["append_system_prompt"]),
+        )
+    return valid, defaults
 
 
 def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> None:
@@ -106,17 +140,27 @@ def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> No
     stderr_path = job_dir / "stderr.log"
     meta_path = job_dir / "meta.json"
 
-    cmd = ["claude", "--dangerously-skip-permissions", "-p", job["instruction"],
+    instruction = _expand(job["instruction"], fired_at, name)
+    system_prompt = _expand(job["system_prompt"], fired_at, name) if job.get("system_prompt") else None
+    append_system_prompt = _expand(job["append_system_prompt"], fired_at, name) if job.get("append_system_prompt") else None
+
+    cmd = ["claude", "--dangerously-skip-permissions", "-p", instruction,
            "--output-format", "stream-json", "--verbose"]
     if job.get("model"):
         cmd += ["--model", job["model"]]
+    if system_prompt:
+        cmd += ["--system-prompt", system_prompt]
+    if append_system_prompt:
+        cmd += ["--append-system-prompt", append_system_prompt]
 
     started_at = datetime.now(timezone.utc).isoformat()
     meta: dict[str, Any] = {
         "name": name,
         "schedule": job["schedule"],
         "model": job.get("model"),
-        "instruction": job["instruction"],
+        "instruction": instruction,
+        "system_prompt": system_prompt,
+        "append_system_prompt": append_system_prompt,
         "workspace": WORKSPACE,
         "started_at": started_at,
         "finished_at": None,
@@ -203,25 +247,37 @@ def main() -> int:
         return 1
 
     try:
-        jobs = load_jobs(CRON_FILE)
+        jobs, defaults = load_jobs(CRON_FILE)
     except (ValueError, yaml.YAMLError) as e:
         log.error("invalid cron file: %s", e)
         return 1
 
     workspace_slug = slugify(WORKSPACE)
     log.info("loaded %d job(s) from %s", len(jobs), CRON_FILE)
+    if defaults.get("model"):
+        log.info("default model: %s", defaults["model"])
+    if defaults.get("system_prompt"):
+        log.info("default system_prompt set")
+    if defaults.get("append_system_prompt"):
+        log.info("default append_system_prompt set")
     log.info("workspace: %s (slug: %s)", WORKSPACE, workspace_slug)
     log.info("history root: %s", HISTORY_ROOT / workspace_slug)
     for j in jobs:
+        extras = []
+        if j.get("model"):
+            extras.append(f"model={j['model']}")
+        if j.get("system_prompt"):
+            extras.append("system_prompt=yes")
+        if j.get("append_system_prompt"):
+            extras.append("append_system_prompt=yes")
         log.info("  - %s [%s]%s", j["name"], j["schedule"],
-                 f" model={j['model']}" if j.get("model") else "")
+                 (" " + " ".join(extras)) if extras else "")
 
     HISTORY_ROOT.mkdir(parents=True, exist_ok=True)
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    # initialize each job's "next fire" time from now
     now = datetime.now()
     iters = {j["name"]: croniter(j["schedule"], now, second_at_beginning=True) for j in jobs}
     next_at: dict[str, datetime] = {n: it.get_next(datetime) for n, it in iters.items()}
@@ -237,7 +293,6 @@ def main() -> int:
                 _spawn_job(j, fired_at, workspace_slug)
                 next_at[n] = iters[n].get_next(datetime)
                 log.debug("[%s] next fire: %s", n, next_at[n].isoformat())
-        # sleep until the next fire, capped so we react quickly to short schedules
         soonest = min(next_at.values())
         delta = max(0.5, min(5.0, (soonest - datetime.now()).total_seconds()))
         _shutdown.wait(timeout=delta)
