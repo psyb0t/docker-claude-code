@@ -77,6 +77,10 @@ services:
 | ----------------------------- | ---------------------------------------------------------------- |
 | any text message              | Sent to Claude as a prompt in the chat's workspace               |
 | send a file/photo/video/voice | Saved to workspace; the caption becomes the prompt (if present)  |
+| `/model [name]`               | Show current model with selectable buttons, or set directly: `/model haiku\|sonnet\|opus\|opusplan\|reset`. |
+| `/effort [level]`             | Show/select effort level: `/effort low\|medium\|high\|xhigh\|max\|reset`. |
+| `/system_prompt [text]`       | Show, set, or reset (`reset`/`clear`) the system prompt override for this chat. With no args shows the current value. |
+| `/append_system_prompt [text]` | Same as above for the appended system prompt. |
 | `/bash <command>`             | Run a shell command directly in the chat's workspace             |
 | `/fetch <path>`               | Get a file from the workspace sent as a Telegram attachment      |
 | `/cancel`                     | Kill the running Claude process for this chat                    |

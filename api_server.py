@@ -699,6 +699,7 @@ _OAI_MODELS = [
     {"id": "haiku", "object": "model", "created": 0, "owned_by": "anthropic"},
     {"id": "sonnet", "object": "model", "created": 0, "owned_by": "anthropic"},
     {"id": "opus", "object": "model", "created": 0, "owned_by": "anthropic"},
+    {"id": "opusplan", "object": "model", "created": 0, "owned_by": "anthropic"},
 ]
 
 
@@ -1039,8 +1040,8 @@ async def claude_run(
 
     Args:
         prompt: The prompt/task to send to Claude Code.
-        model: Model alias to use — haiku (fast/cheap), sonnet (balanced), opus (powerful).
-               Defaults to haiku.
+        model: Model alias to use — haiku (fast/cheap), sonnet (balanced), opus (powerful),
+               opusplan (planning with sonnet+opus). Defaults to haiku.
         system_prompt: Override the default system prompt entirely.
         append_system_prompt: Text to append to the system prompt without replacing it.
         json_schema: JSON Schema string for structured output — Claude will return JSON

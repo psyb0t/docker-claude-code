@@ -184,7 +184,7 @@ claudebox exposes an OpenAI-compatible adapter so tools like [LiteLLM](https://g
 
 ```bash
 curl http://localhost:8080/openai/v1/models
-# {"object":"list","data":[{"id":"haiku",...},{"id":"sonnet",...},{"id":"opus",...}]}
+# {"object":"list","data":[{"id":"haiku",...},{"id":"sonnet",...},{"id":"opus",...},{"id":"opusplan",...}]}
 ```
 
 **`POST /openai/v1/chat/completions`** — chat completions (streaming and non-streaming):
@@ -201,7 +201,7 @@ curl -X POST http://localhost:8080/openai/v1/chat/completions \
   -d '{"model":"haiku","messages":[{"role":"user","content":"hello"}],"stream":true}'
 ```
 
-**Model names:** use the same aliases as the CLI (`haiku`, `sonnet`, `opus`). Provider prefixes are stripped automatically — `claudebox/haiku` becomes `haiku`, `openai/sonnet` becomes `sonnet`.
+**Model names:** use the same aliases as the CLI (`haiku`, `sonnet`, `opus`, `opusplan`). Provider prefixes are stripped automatically — `claudebox/haiku` becomes `haiku`, `openai/sonnet` becomes `sonnet`.
 
 **System messages:** messages with `role: "system"` are extracted and passed to Claude Code as `--system-prompt`.
 

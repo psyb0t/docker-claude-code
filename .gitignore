@@ -7,5 +7,6 @@ tests/.tmp-*/
 tests/.fixtures/mounts/*
 !tests/.fixtures/mounts/.gitkeep
 tests/.fixtures/cron-*/
+.e2e-cron-tg/
 base/
 desc.txt

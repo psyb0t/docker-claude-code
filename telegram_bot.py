@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from telegram import InputFile, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.constants import ChatAction, MessageLimit
 
 from telegram_utils import BOT_TOKEN, send_long as _send_long_util
 
 from telegram.ext import (  # isort: skip
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -25,6 +26,34 @@ from telegram.ext import (  # isort: skip
 )
 
 logger = logging.getLogger(__name__)
+
+AVAILABLE_MODELS = ["haiku", "sonnet", "opus", "opusplan"]
+AVAILABLE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+RESET_TOKENS = {"__reset__", "default", "reset", "clear", "none"}
+OVERRIDES_FILE = Path("/home/claude/.claude/telegram_overrides.json")
+chat_overrides: dict[int, dict] = {}
+
+
+def _load_overrides() -> None:
+    global chat_overrides
+    try:
+        if OVERRIDES_FILE.exists():
+            data = json.loads(OVERRIDES_FILE.read_text())
+            chat_overrides = {int(k): v for k, v in data.items()}
+    except Exception as e:
+        logger.warning("failed to load overrides: %s", e)
+        chat_overrides = {}
+
+
+def _save_overrides() -> None:
+    try:
+        OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = OVERRIDES_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({str(k): v for k, v in chat_overrides.items()}))
+        tmp.rename(OVERRIDES_FILE)
+    except Exception as e:
+        logger.warning("failed to save overrides: %s", e)
+
 
 # BOT_TOKEN imported from telegram_utils
 CONFIG_PATH = (
@@ -45,13 +74,25 @@ IS_CRON_MODE = os.environ.get("CLAUDEBOX_MODE_CRON", "") == "1"
 CRON_FILE_PATH = os.environ.get("CLAUDEBOX_MODE_CRON_FILE", "")
 CRON_MESSAGES_FILE = Path(_HOME) / ".claude" / "cron" / "telegram_messages.json"
 
+
+def _slugify(path: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9]+", "_", path).strip("_")
+    return s or "workspace"
+
+
+_CRON_WORKSPACE = os.environ.get("CLAUDEBOX_WORKSPACE", "/workspace")
+_CRON_HISTORY_ROOT = str(Path(_HOME) / ".claude" / "cron" / "history" / _slugify(_CRON_WORKSPACE))
+
 CRON_SYSTEM_HINT = ""
 if IS_CRON_MODE and CRON_FILE_PATH:
     CRON_SYSTEM_HINT = (
         f"You are running alongside a cron scheduler. "
         f"The cron configuration is at {CRON_FILE_PATH!r}. "
-        "Scheduled jobs run automatically and may send their results to this chat. "
-        "When the user replies to a cron job notification, they are following up on that job's output."
+        f"Cron job run history is stored at {_CRON_HISTORY_ROOT!r} — "
+        "each run directory contains activity.jsonl (full Claude stream output), "
+        "stderr.log, and meta.json (job name, schedule, instruction, exit code, timestamps). "
+        "When the user refers to something you have no context on, check the most recent "
+        "run directory for the relevant job before responding."
     )
 
 busy_chats: dict[int, Optional[asyncio.subprocess.Process]] = {}
@@ -96,7 +137,8 @@ def is_allowed(chat_id: int, user_id: int) -> bool:
 def get_chat_config(chat_id: int) -> dict:
     defaults = config.get("default", {})
     chat_cfg = config.get("chats", {}).get(chat_id, {})
-    merged = {**defaults, **chat_cfg}
+    overrides = chat_overrides.get(chat_id, {})
+    merged = {**defaults, **chat_cfg, **overrides}
     if "workspace" not in merged:
         merged["workspace"] = f"chat_{abs(chat_id)}"
     return merged
@@ -134,9 +176,31 @@ def _load_cron_message(message_id: int) -> Optional[dict]:
         return None
 
 
-def _build_claude_args(prompt: str, chat_cfg: dict) -> list[str]:
+def _build_cron_context_block(limit: int = 10) -> str:
+    """Format the most recent cron runs (job, when, instruction, result) as a system-prompt block."""
+    if not CRON_MESSAGES_FILE.exists():
+        return ""
+    try:
+        data = json.loads(CRON_MESSAGES_FILE.read_text())
+    except Exception:
+        return ""
+    runs = list(data.values())[-limit:]
+    if not runs:
+        return ""
+    lines = [f"Recent cron job runs (most recent {len(runs)}, oldest first):"]
+    for r in runs:
+        instr = (r.get("instruction") or "").strip().replace("\n", " ")[:200]
+        result = (r.get("result") or "").strip().replace("\n", " ")[:400]
+        lines.append(
+            f"- [{r.get('fired_at', '?')}] job={r.get('job_name', '?')} "
+            f"instruction={instr!r} result={result!r}"
+        )
+    return "\n".join(lines)
+
+
+def _build_claude_args(prompt: str, chat_cfg: dict, use_continue: bool = True) -> list[str]:
     args = ["claude", "--dangerously-skip-permissions"]
-    if chat_cfg.get("continue", True):
+    if use_continue and chat_cfg.get("continue", True):
         args.append("--continue")
     args += ["-p", prompt, "--output-format", "text"]
     if chat_cfg.get("model"):
@@ -150,6 +214,9 @@ def _build_claude_args(prompt: str, chat_cfg: dict) -> list[str]:
     append_parts.append(TELEGRAM_SYSTEM_HINT)
     if CRON_SYSTEM_HINT:
         append_parts.append(CRON_SYSTEM_HINT)
+        cron_ctx = _build_cron_context_block()
+        if cron_ctx:
+            append_parts.append(cron_ctx)
     if chat_cfg.get("append_system_prompt"):
         append_parts.append(chat_cfg["append_system_prompt"])
     args += ["--append-system-prompt", "\n".join(append_parts)]
@@ -252,6 +319,7 @@ async def _run_prompt(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     prompt: str,
+    use_continue: bool = True,
 ) -> None:
     chat = update.effective_chat
     if not chat:
@@ -280,7 +348,7 @@ async def _run_prompt(
     typing_task = asyncio.create_task(_typing_loop(context.bot, chat_id, stop_typing))
 
     try:
-        args = _build_claude_args(prompt, chat_cfg)
+        args = _build_claude_args(prompt, chat_cfg, use_continue=use_continue)
         env = _build_env()
 
         proc = await asyncio.create_subprocess_exec(
@@ -302,7 +370,7 @@ async def _run_prompt(
             return
 
         # fallback: if --continue failed with no output, retry without
-        if proc.returncode != 0 and not output and chat_cfg.get("continue", True):
+        if proc.returncode != 0 and not output and use_continue and chat_cfg.get("continue", True):
             logger.info(
                 "chat %s --continue failed (exit=%s), retrying without",
                 chat_id,
@@ -365,6 +433,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     prompt = text
+    is_cron_reply = False
     if IS_CRON_MODE and msg and msg.reply_to_message:
         entry = _load_cron_message(msg.reply_to_message.message_id)
         if entry:
@@ -375,9 +444,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"Job result: {entry['result']}\n\n"
                 f"User follow-up: {text}"
             )
-            logger.info("chat %s reply to cron job %s", chat.id, entry["job_name"])
+            is_cron_reply = True
+            logger.info("chat %s reply to cron job %s (no-continue)", chat.id, entry["job_name"])
 
-    await _run_prompt(update, context, prompt)
+    await _run_prompt(update, context, prompt, use_continue=not is_cron_reply)
 
 
 async def _handle_file_upload(
@@ -509,6 +579,185 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.effective_message.reply_text("\n".join(lines))
 
 
+def _resolved_value(chat_id: int, key: str, default: str = "default") -> str:
+    cfg = get_chat_config(chat_id)
+    val = cfg.get(key)
+    return str(val) if val else default
+
+
+def _set_override(chat_id: int, key: str, value) -> None:
+    chat_overrides.setdefault(chat_id, {})[key] = value
+    _save_overrides()
+
+
+def _clear_override(chat_id: int, key: str) -> None:
+    if chat_id not in chat_overrides:
+        return
+    chat_overrides[chat_id].pop(key, None)
+    if not chat_overrides[chat_id]:
+        chat_overrides.pop(chat_id, None)
+    _save_overrides()
+
+
+def _apply_choice(chat_id: int, key: str, choice: str, allowed: list[str]) -> None:
+    if choice in RESET_TOKENS:
+        _clear_override(chat_id, key)
+        return
+    if choice not in allowed:
+        raise ValueError(f"unknown {key} {choice!r} (allowed: {allowed})")
+    _set_override(chat_id, key, choice)
+
+
+async def _send_choice_keyboard(
+    msg, chat_id: int, key: str, label: str, options: list[str]
+) -> None:
+    current = _resolved_value(chat_id, key)
+    overridden_val = chat_overrides.get(chat_id, {}).get(key)
+    buttons = [
+        [InlineKeyboardButton(
+            ("✓ " if overridden_val == opt else "") + opt,
+            callback_data=f"{key}:{opt}",
+        )]
+        for opt in options
+    ]
+    buttons.append([InlineKeyboardButton("reset to yaml default", callback_data=f"{key}:__reset__")])
+    suffix = " (overridden)" if overridden_val is not None else " (from yaml)"
+    await msg.reply_text(
+        f"current {label}: <b>{current}</b>{suffix}\nselect a new one:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    chat = update.effective_chat
+    msg = update.effective_message
+    if not user or not chat or not msg or not is_allowed(chat.id, user.id):
+        return
+
+    if context.args:
+        choice = context.args[0].strip().lower()
+        try:
+            _apply_choice(chat.id, "model", choice, AVAILABLE_MODELS)
+        except ValueError as e:
+            await msg.reply_text(str(e))
+            return
+        await msg.reply_text(f"model: {_resolved_value(chat.id, 'model')}")
+        return
+
+    await _send_choice_keyboard(msg, chat.id, "model", "model", AVAILABLE_MODELS)
+
+
+async def cmd_effort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    chat = update.effective_chat
+    msg = update.effective_message
+    if not user or not chat or not msg or not is_allowed(chat.id, user.id):
+        return
+
+    if context.args:
+        choice = context.args[0].strip().lower()
+        try:
+            _apply_choice(chat.id, "effort", choice, AVAILABLE_EFFORTS)
+        except ValueError as e:
+            await msg.reply_text(str(e))
+            return
+        await msg.reply_text(f"effort: {_resolved_value(chat.id, 'effort')}")
+        return
+
+    await _send_choice_keyboard(msg, chat.id, "effort", "effort", AVAILABLE_EFFORTS)
+
+
+async def _cmd_text_override(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, key: str, label: str
+) -> None:
+    user = update.effective_user
+    chat = update.effective_chat
+    msg = update.effective_message
+    if not user or not chat or not msg or not is_allowed(chat.id, user.id):
+        return
+
+    text = (msg.text or "").partition(" ")[2].strip()
+
+    if not text:
+        current = chat_overrides.get(chat.id, {}).get(key)
+        yaml_val = get_chat_config(chat.id).get(key)
+        if current is not None:
+            await msg.reply_text(
+                f"<b>{label}</b> override (chat {chat.id}):\n<pre>{current}</pre>\n"
+                f"to clear: <code>/{key} reset</code>",
+                parse_mode="HTML",
+            )
+            return
+        if yaml_val:
+            await msg.reply_text(
+                f"<b>{label}</b> from yaml:\n<pre>{yaml_val}</pre>\n"
+                f"override with: <code>/{key} &lt;text&gt;</code>",
+                parse_mode="HTML",
+            )
+            return
+        await msg.reply_text(
+            f"no {label} set. usage: <code>/{key} &lt;text&gt;</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    if text.lower() in RESET_TOKENS:
+        _clear_override(chat.id, key)
+        await msg.reply_text(f"{label} override cleared")
+        return
+
+    _set_override(chat.id, key, text)
+    await msg.reply_text(f"{label} override saved ({len(text)} chars)")
+
+
+async def cmd_system_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_text_override(update, context, "system_prompt", "system_prompt")
+
+
+async def cmd_append_system_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_text_override(update, context, "append_system_prompt", "append_system_prompt")
+
+
+_BUTTON_HANDLERS = {
+    "model": (AVAILABLE_MODELS, "model"),
+    "effort": (AVAILABLE_EFFORTS, "effort"),
+}
+
+
+async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user or not chat or not is_allowed(chat.id, user.id):
+        await query.answer("not allowed")
+        return
+
+    key, _, choice = query.data.partition(":")
+    if key in _BUTTON_HANDLERS:
+        allowed, label = _BUTTON_HANDLERS[key]
+        try:
+            _apply_choice(chat.id, key, choice, allowed)
+        except ValueError as e:
+            await query.answer(str(e))
+            return
+        new_val = _resolved_value(chat.id, key)
+        await query.answer(f"{label}: {new_val}")
+        try:
+            await query.edit_message_text(
+                f"{label} set: <b>{new_val}</b>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+        return
+
+    await query.answer()
+
+
 async def cmd_bash(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat = update.effective_chat
@@ -589,12 +838,17 @@ def main() -> None:
 
     global config
     config = load_config()
+    _load_overrides()
 
     async def _post_init(application: Application) -> None:
         from telegram import BotCommand
 
         await application.bot.set_my_commands(
             [
+                BotCommand("model", "Select claude model (overrides yaml)"),
+                BotCommand("effort", "Select effort level (overrides yaml)"),
+                BotCommand("system_prompt", "Set/show/reset system prompt override"),
+                BotCommand("append_system_prompt", "Set/show/reset append-system-prompt override"),
                 BotCommand("bash", "Run a shell command"),
                 BotCommand("fetch", "Download a file from workspace"),
                 BotCommand("cancel", "Kill running claude process"),
@@ -617,8 +871,13 @@ def main() -> None:
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("reload", cmd_reload))
     app.add_handler(CommandHandler("config", cmd_config))
+    app.add_handler(CommandHandler("model", cmd_model))
+    app.add_handler(CommandHandler("effort", cmd_effort))
+    app.add_handler(CommandHandler("system_prompt", cmd_system_prompt))
+    app.add_handler(CommandHandler("append_system_prompt", cmd_append_system_prompt))
     app.add_handler(CommandHandler("bash", cmd_bash))
     app.add_handler(CommandHandler("fetch", cmd_fetch))
+    app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
