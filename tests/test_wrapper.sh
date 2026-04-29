@@ -33,6 +33,7 @@ _wrapper_run() {
 PASSTHROUGH_CASES=(
     "--version|[0-9]"
     "-v|[0-9]"
+    "mcp list|MCP servers"
 )
 
 test_wrapper_passthrough() {

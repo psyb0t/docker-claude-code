@@ -38,6 +38,7 @@ Beyond just running Claude Code in Docker, claudebox adds skill injection (auto-
   - [Custom Scripts](#custom-scripts-claudebin)
   - [Init Hooks](#init-hooks-claudeinitd)
   - [Always-Active Skills](#always-active-skills-claudealways-skills)
+  - [MCP Servers](#mcp-servers)
 - [Gotchas](#gotchas)
 - [License](#license)
 
@@ -248,6 +249,7 @@ claudebox --version      # show the Claude Code CLI version
 claudebox -v             # same thing
 claudebox doctor         # run health checks
 claudebox auth           # manage authentication
+claudebox mcp <args...>  # manage MCP servers (e.g. `claudebox mcp list`, `claudebox mcp add ...`)
 claudebox setup-token    # interactive OAuth token setup
 claudebox stop           # stop the running interactive container for this workspace
 claudebox clear-session  # delete session history for this workspace
@@ -930,6 +932,51 @@ EOF
 ```
 
 Multiple skills stack — every `SKILL.md` found is injected. Any user-supplied `appendSystemPrompt` (via API request body, `--append-system-prompt` CLI flag, `X-Claude-Append-System-Prompt` header, etc.) is appended after the always-skills content, so per-request instructions take precedence.
+
+### MCP servers
+
+Claude Code reads MCP server definitions from a few standard locations. Inside claudebox, all of these work because `~/.claude` is mounted from the host and the workspace is mounted from the host cwd:
+
+| Scope     | Path                                                  | Description                                                                          |
+| --------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Project   | `<workspace>/.mcp.json`                               | Per-repo, intended to be checked into git so the team shares the same servers        |
+| User      | `~/.claude.json` (under the `mcpServers` key)         | Global, available across every project on the host                                   |
+| Local     | `~/.claude.json` (per-project section)                | Default scope of `claude mcp add`, only affects the current project, not shared      |
+
+**File format** (same for `.mcp.json` and the `mcpServers` block inside `~/.claude.json`):
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "npx",
+      "args": ["-y", "@some/mcp-server"],
+      "env": { "API_KEY": "..." }
+    },
+    "remote-http": {
+      "type": "http",
+      "url": "https://example.com/mcp/"
+    }
+  }
+}
+```
+
+**Add via CLI inside the container:**
+
+```bash
+# project scope — writes to ./.mcp.json in the workspace (commit-friendly)
+claude mcp add --scope project my-server -- npx -y @some/mcp-server
+
+# user scope — writes to ~/.claude.json, available in every project
+claude mcp add --scope user my-server -- npx -y @some/mcp-server
+
+# local scope (default) — per-project entry inside ~/.claude.json
+claude mcp add my-server -- npx -y @some/mcp-server
+```
+
+**Inspect what's loaded:** run `/mcp` inside an interactive session.
+
+This is how cron and Telegram modes reach external systems — drop your server config in `.mcp.json` (project) or `~/.claude.json` (global) and reference it from the instruction.
 
 ## Gotchas
 

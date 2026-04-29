@@ -123,7 +123,7 @@ fi
 
 # passthrough commands — run in throwaway container, bypass entrypoint
 case "${1:-}" in
-    -v|--version|doctor|auth)
+    -v|--version|doctor|auth|mcp)
         docker run --rm --entrypoint claude "${DOCKER_ARGS[@]}" $CLAUDE_IMAGE "$@"
         exit 0
         ;;
