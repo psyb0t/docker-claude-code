@@ -59,11 +59,8 @@ if [ ! -s "$WRAPPER_TMP" ]; then
 fi
 
 echo "📝 Installing $BIN_NAME to $BIN_PATH..."
-sudo cp "$WRAPPER_TMP" "$BIN_PATH"
+sudo install -m 755 "$WRAPPER_TMP" "$BIN_PATH"
 rm -f "$WRAPPER_TMP"
-
-echo "🔧 Making $BIN_NAME command executable..."
-sudo chmod +x "$BIN_PATH"
 
 echo "✅ Claude Code setup complete! You can now use '$BIN_NAME' command from any directory."
 echo ""
