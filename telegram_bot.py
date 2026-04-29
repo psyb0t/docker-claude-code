@@ -70,9 +70,10 @@ if os.path.isfile(SYSTEM_HINT_FILE):
         SYSTEM_HINT = _f.read().strip()
 
 _HOME = os.environ.get("HOME", "/home/claude")
+_CLAUDE_CONFIG_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path(_HOME) / ".claude"))
 IS_CRON_MODE = os.environ.get("CLAUDEBOX_MODE_CRON", "") == "1"
 CRON_FILE_PATH = os.environ.get("CLAUDEBOX_MODE_CRON_FILE", "")
-CRON_MESSAGES_FILE = Path(_HOME) / ".claude" / "cron" / "telegram_messages.json"
+CRON_MESSAGES_FILE = _CLAUDE_CONFIG_DIR / "cron" / "telegram_messages.json"
 
 
 def _slugify(path: str) -> str:
@@ -81,7 +82,7 @@ def _slugify(path: str) -> str:
 
 
 _CRON_WORKSPACE = os.environ.get("CLAUDEBOX_WORKSPACE", "/workspace")
-_CRON_HISTORY_ROOT = str(Path(_HOME) / ".claude" / "cron" / "history" / _slugify(_CRON_WORKSPACE))
+_CRON_HISTORY_ROOT = str(_CLAUDE_CONFIG_DIR / "cron" / "history" / _slugify(_CRON_WORKSPACE))
 
 CRON_SYSTEM_HINT = ""
 if IS_CRON_MODE and CRON_FILE_PATH:
@@ -178,9 +179,9 @@ def _load_cron_message(message_id: int) -> Optional[dict]:
 
 def _build_cron_context_block(limit: int = 10) -> str:
     """Format the most recent cron runs (job, when, instruction, result) as a system-prompt block."""
-    if not CRON_MESSAGES_FILE.exists():
-        return ""
     try:
+        if not CRON_MESSAGES_FILE.exists():
+            return ""
         data = json.loads(CRON_MESSAGES_FILE.read_text())
     except Exception:
         return ""

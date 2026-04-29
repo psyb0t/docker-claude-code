@@ -44,8 +44,10 @@ log = logging.getLogger("claudebox-cron")
 CRON_FILE = os.environ.get("CLAUDEBOX_MODE_CRON_FILE") or os.environ.get("CLAUDE_MODE_CRON_FILE", "")
 WORKSPACE = os.environ.get("CLAUDEBOX_WORKSPACE") or os.environ.get("CLAUDE_WORKSPACE") or "/workspace"
 HOME = os.environ.get("HOME", "/home/claude")
-HISTORY_ROOT = Path(HOME) / ".claude" / "cron" / "history"
-TELEGRAM_MESSAGES_FILE = Path(HOME) / ".claude" / "cron" / "telegram_messages.json"
+CLAUDE_CONFIG_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path(HOME) / ".claude"))
+CRON_DIR = CLAUDE_CONFIG_DIR / "cron"
+HISTORY_ROOT = CRON_DIR / "history"
+TELEGRAM_MESSAGES_FILE = CRON_DIR / "telegram_messages.json"
 TELEGRAM_MODE = os.environ.get("CLAUDEBOX_MODE_TELEGRAM", "") == "1"
 
 _running_jobs: dict[str, threading.Thread] = {}
@@ -193,6 +195,7 @@ def _save_telegram_message(message_id: int, job: dict[str, Any], fired_at: datet
         if len(data) > 200:
             for k in list(data.keys())[:-200]:
                 del data[k]
+        TELEGRAM_MESSAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = TELEGRAM_MESSAGES_FILE.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data))
         tmp.rename(TELEGRAM_MESSAGES_FILE)
