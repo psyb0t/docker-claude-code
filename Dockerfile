@@ -19,7 +19,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
 RUN apt-get update && apt-get install -y \
     python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --no-cache-dir --break-system-packages --ignore-installed fastapi uvicorn python-telegram-bot pyyaml mcp
+    && pip3 install --no-cache-dir --break-system-packages --ignore-installed fastapi uvicorn python-telegram-bot pyyaml mcp croniter
 
 # docker (needed for docker-in-docker)
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
@@ -66,6 +66,7 @@ WORKDIR /workspace
 COPY entrypoint.sh /home/claude/entrypoint.sh
 COPY api_server.py /home/claude/api_server.py
 COPY telegram_bot.py /home/claude/telegram_bot.py
+COPY cron.py /home/claude/cron.py
 COPY jsonpipe.py /home/claude/jsonpipe.py
 RUN chmod +x /home/claude/entrypoint.sh
 
@@ -73,11 +74,11 @@ ENTRYPOINT ["/home/claude/entrypoint.sh"]
 
 # ── minimal ────────────────────────────────────────────────────────────────────
 FROM base AS minimal
-ENV CLAUDE_IMAGE_VARIANT=minimal
+ENV CLAUDEBOX_IMAGE_VARIANT=minimal
 
 # ── full ───────────────────────────────────────────────────────────────────────
 FROM base AS full
-ENV CLAUDE_IMAGE_VARIANT=full
+ENV CLAUDEBOX_IMAGE_VARIANT=full
 
 # build tools
 RUN apt-get update && apt-get install -y \

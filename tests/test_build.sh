@@ -5,7 +5,7 @@
 BUILD_CHECKS=(
     "entrypoint|Config.Entrypoint|entrypoint.sh"
     "claude user env|Config.Env|DISABLE_AUTOUPDATER=1"
-    "minimal variant|Config.Env|CLAUDE_IMAGE_VARIANT=minimal"
+    "minimal variant|Config.Env|CLAUDEBOX_IMAGE_VARIANT=minimal"
 )
 
 test_build_image_config() {

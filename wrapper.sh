@@ -1,28 +1,32 @@
 #!/usr/bin/env bash
 
+# CLAUDEBOX_* is the canonical prefix. CLAUDE_* names remain supported for backwards compat.
+DEBUG="${CLAUDEBOX_ENV_DEBUG:-${DEBUG:-}}"
+
 dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
 
-if [ -n "${CLAUDE_IMAGE:-}" ]; then
-    CLAUDE_IMAGE="$CLAUDE_IMAGE"
-elif [ -n "$CLAUDE_MINIMAL" ]; then
-    CLAUDE_IMAGE="psyb0t/claudebox:latest-minimal"
-else
-    CLAUDE_IMAGE="psyb0t/claudebox:latest"
+CLAUDE_IMAGE="${CLAUDEBOX_IMAGE:-${CLAUDE_IMAGE:-}}"
+_minimal="${CLAUDEBOX_MINIMAL:-${CLAUDE_MINIMAL:-}}"
+if [ -z "$CLAUDE_IMAGE" ]; then
+    if [ -n "$_minimal" ]; then
+        CLAUDE_IMAGE="psyb0t/claudebox:latest-minimal"
+    else
+        CLAUDE_IMAGE="psyb0t/claudebox:latest"
+    fi
 fi
 
-# Git identity - use env var if set, otherwise empty
-CLAUDE_GIT_NAME="${CLAUDE_GIT_NAME:-}"
-CLAUDE_GIT_EMAIL="${CLAUDE_GIT_EMAIL:-}"
+CLAUDE_GIT_NAME="${CLAUDEBOX_GIT_NAME:-${CLAUDE_GIT_NAME:-}}"
+CLAUDE_GIT_EMAIL="${CLAUDEBOX_GIT_EMAIL:-${CLAUDE_GIT_EMAIL:-}}"
+CLAUDE_DIR="${CLAUDEBOX_DATA_DIR:-${CLAUDE_DATA_DIR:-$HOME/.claude}}"
+CLAUDE_SSH="${CLAUDEBOX_SSH_DIR:-${CLAUDE_SSH_DIR:-$HOME/.ssh/claudebox}}"
 
-# Claude data dir - override with CLAUDE_DATA_DIR env var
-CLAUDE_DIR="${CLAUDE_DATA_DIR:-$HOME/.claude}"
-
-# SSH dir - override with CLAUDE_SSH_DIR env var
-CLAUDE_SSH="${CLAUDE_SSH_DIR:-$HOME/.ssh/claudebox}"
+# auth: prefer CLAUDEBOX_ENV_*, fall back to legacy direct vars
+ANTHROPIC_API_KEY="${CLAUDEBOX_ENV_ANTHROPIC_API_KEY:-${ANTHROPIC_API_KEY:-}}"
+CLAUDE_CODE_OAUTH_TOKEN="${CLAUDEBOX_ENV_CLAUDE_CODE_OAUTH_TOKEN:-${CLAUDE_CODE_OAUTH_TOKEN:-}}"
 
 # Convert PWD to a valid container name (slashes to underscores)
 sanitized_pwd=$(echo "$PWD" | sed 's/\//_/g')
-container_name="${CLAUDE_CONTAINER_NAME:-claude-${sanitized_pwd}}"
+container_name="${CLAUDEBOX_CONTAINER_NAME:-${CLAUDE_CONTAINER_NAME:-claude-${sanitized_pwd}}}"
 dbg "container_name=$container_name"
 dbg "CLAUDE_DIR=$CLAUDE_DIR"
 dbg "CLAUDE_SSH=$CLAUDE_SSH"
@@ -30,10 +34,10 @@ dbg "PWD=$PWD"
 
 DOCKER_ARGS=(
     --network host
-    -e CLAUDE_GIT_NAME="$CLAUDE_GIT_NAME"
-    -e CLAUDE_GIT_EMAIL="$CLAUDE_GIT_EMAIL"
-    -e CLAUDE_WORKSPACE="$PWD"
-    -e CLAUDE_CONTAINER_NAME="$container_name"
+    -e CLAUDEBOX_GIT_NAME="$CLAUDE_GIT_NAME"
+    -e CLAUDEBOX_GIT_EMAIL="$CLAUDE_GIT_EMAIL"
+    -e CLAUDEBOX_WORKSPACE="$PWD"
+    -e CLAUDEBOX_CONTAINER_NAME="$container_name"
     -v "$CLAUDE_SSH:/home/claude/.ssh"
     -v "$CLAUDE_DIR:/home/claude/.claude"
     -v "$PWD:$PWD"
@@ -46,21 +50,25 @@ DOCKER_ARGS=(
 [ "$DEBUG" = "true" ] && DOCKER_ARGS+=(-e "DEBUG=true")
 
 
-# forward CLAUDE_ENV_* vars (strip prefix: CLAUDE_ENV_FOO=bar -> FOO=bar)
+# forward CLAUDEBOX_ENV_* / CLAUDE_ENV_* vars (strip prefix: FOO=bar)
 while IFS='=' read -r name value; do
-    stripped="${name#CLAUDE_ENV_}"
+    case "$name" in
+        CLAUDEBOX_ENV_*) stripped="${name#CLAUDEBOX_ENV_}" ;;
+        CLAUDE_ENV_*)    stripped="${name#CLAUDE_ENV_}" ;;
+        *) continue ;;
+    esac
     DOCKER_ARGS+=(-e "$stripped=$value")
     dbg "forwarding env: $stripped"
-done < <(env | grep "^CLAUDE_ENV_")
+done < <(env | grep -E "^(CLAUDEBOX_ENV_|CLAUDE_ENV_)")
 
-# mount extra volumes via CLAUDE_MOUNT_* (just a path = same path in container, with : = explicit source:dest)
+# mount extra volumes via CLAUDEBOX_MOUNT_* / CLAUDE_MOUNT_*
 while IFS='=' read -r name value; do
     case "$value" in
         *:*) DOCKER_ARGS+=(-v "$value") ;;
         *)   DOCKER_ARGS+=(-v "$value:$value") ;;
     esac
     dbg "mounting volume: $value"
-done < <(env | grep "^CLAUDE_MOUNT_")
+done < <(env | grep -E "^(CLAUDEBOX_MOUNT_|CLAUDE_MOUNT_)")
 
 dbg "ANTHROPIC_API_KEY set: $([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no)"
 dbg "CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo yes || echo no)"
@@ -235,11 +243,11 @@ if [ $# -gt 0 ]; then
         if ! docker ps -a --format '{{.Names}}' | grep -q "^${prog_name}$"; then
             dbg "prog: container does not exist, creating with docker run"
             if [ -n "$PIPE_MODE" ]; then
-                docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}" \
+                docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDEBOX_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}" \
                     | docker run --rm -i --entrypoint python3 $CLAUDE_IMAGE /home/claude/jsonpipe.py "$PIPE_MODE"
                 prog_rc=${PIPESTATUS[0]}
             else
-                docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDE_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
+                docker run --name "$prog_name" "${DOCKER_ARGS[@]}" -e CLAUDEBOX_CONTAINER_NAME="$prog_name" $CLAUDE_IMAGE "${PASS_ARGS[@]}"
                 prog_rc=$?
             fi
             dbg "prog: docker run exited with $prog_rc"

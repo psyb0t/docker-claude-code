@@ -216,7 +216,7 @@ test_wrapper_volume_mounting() {
     _wrapper_setup
 
     local mount_dir
-    mount_dir=$(mktemp -d "$WORKDIR/tests/.tmp-mount-XXXXX")
+    mount_dir=$(mktemp -d "$WORKDIR/tests/.fixtures/mounts/legacy-XXXXX")
     echo "MOUNTTEST99" > "$mount_dir/testfile.txt"
 
     # verify mount works: tell claude to read the file from inside the container
@@ -229,6 +229,49 @@ test_wrapper_volume_mounting() {
     CLAUDE_CONTAINER_NAME="${_wrapper_container_name}-mnt" \
     bash "$WRAPPER" -p "run: cat $mount_dir/testfile.txt" --model "$TEST_MODEL" --output-format text --no-continue 2>&1)
     assert_contains "$out" "MOUNTTEST99" "CLAUDE_MOUNT_* file accessible inside container"
+
+    docker rm -f "${_wrapper_container_name}-mnt" "${_wrapper_container_name}-mnt_prog" >/dev/null 2>&1 || true
+    rm -rf "$mount_dir"
+    _wrapper_cleanup
+}
+
+# ── CLAUDEBOX_ENV_* forwarding (new prefix) ──────────────────────────────────
+
+test_wrapper_env_forwarding_claudebox() {
+    _wrapper_setup
+
+    local out
+    out=$(CLAUDEBOX_ENV_MY_TEST_VAR="ENVFORWARD_CB42" \
+    CLAUDEBOX_IMAGE="$IMAGE" \
+    CLAUDEBOX_DATA_DIR="$TEST_DATA_DIR" \
+    CLAUDEBOX_SSH_DIR="$TEST_SSH_DIR" \
+    CLAUDEBOX_ENV_CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+    CLAUDEBOX_CONTAINER_NAME="$_wrapper_container_name" \
+    bash "$WRAPPER" -p 'run: echo $MY_TEST_VAR' \
+        --model "$TEST_MODEL" --output-format text --no-continue 2>&1)
+    assert_contains "$out" "ENVFORWARD_CB42" "CLAUDEBOX_ENV_* forwarded into container"
+
+    _wrapper_cleanup
+}
+
+# ── CLAUDEBOX_MOUNT_* volume mounting (new prefix) ───────────────────────────
+
+test_wrapper_volume_mounting_claudebox() {
+    _wrapper_setup
+
+    local mount_dir
+    mount_dir=$(mktemp -d "$WORKDIR/tests/.fixtures/mounts/cb-XXXXX")
+    echo "MOUNTTEST_CB99" > "$mount_dir/testfile.txt"
+
+    local out
+    out=$(CLAUDEBOX_MOUNT_TESTDIR="$mount_dir" \
+    CLAUDEBOX_IMAGE="$IMAGE" \
+    CLAUDEBOX_DATA_DIR="$TEST_DATA_DIR" \
+    CLAUDEBOX_SSH_DIR="$TEST_SSH_DIR" \
+    CLAUDEBOX_ENV_CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+    CLAUDEBOX_CONTAINER_NAME="${_wrapper_container_name}-mnt" \
+    bash "$WRAPPER" -p "run: cat $mount_dir/testfile.txt" --model "$TEST_MODEL" --output-format text --no-continue 2>&1)
+    assert_contains "$out" "MOUNTTEST_CB99" "CLAUDEBOX_MOUNT_* file accessible inside container"
 
     docker rm -f "${_wrapper_container_name}-mnt" "${_wrapper_container_name}-mnt_prog" >/dev/null 2>&1 || true
     rm -rf "$mount_dir"
@@ -362,7 +405,9 @@ ALL_TESTS+=(
     test_wrapper_clear_session
     test_wrapper_flag_passthrough
     test_wrapper_env_forwarding
+    test_wrapper_env_forwarding_claudebox
     test_wrapper_volume_mounting
+    test_wrapper_volume_mounting_claudebox
     test_wrapper_no_continue_marker
     test_wrapper_resume_flag
     test_wrapper_container_reuse

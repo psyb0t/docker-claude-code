@@ -2,9 +2,16 @@
 
 dbg() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG $(date +%H:%M:%S.%3N)] $*" >&2; }
 
+# CLAUDEBOX_* is canonical; CLAUDE_* still accepted for backwards compat
+CLAUDE_CONTAINER_NAME="${CLAUDEBOX_CONTAINER_NAME:-${CLAUDE_CONTAINER_NAME:-}}"
+CLAUDE_WORKSPACE="${CLAUDEBOX_WORKSPACE:-${CLAUDE_WORKSPACE:-}}"
+CLAUDE_GIT_NAME="${CLAUDEBOX_GIT_NAME:-${CLAUDE_GIT_NAME:-}}"
+CLAUDE_GIT_EMAIL="${CLAUDEBOX_GIT_EMAIL:-${CLAUDE_GIT_EMAIL:-}}"
+CLAUDE_IMAGE_VARIANT="${CLAUDEBOX_IMAGE_VARIANT:-${CLAUDE_IMAGE_VARIANT:-full}}"
+
 dbg "entrypoint start, args: $*"
-dbg "CLAUDE_CONTAINER_NAME=$CLAUDE_CONTAINER_NAME"
-dbg "CLAUDE_WORKSPACE=$CLAUDE_WORKSPACE"
+dbg "CLAUDEBOX_CONTAINER_NAME=$CLAUDE_CONTAINER_NAME"
+dbg "CLAUDEBOX_WORKSPACE=$CLAUDE_WORKSPACE"
 
 # fix docker socket permissions by matching the container's docker group GID to the socket's GID
 if [ -S /var/run/docker.sock ]; then
@@ -156,7 +163,7 @@ CLAUDEMD_MINIMAL
 - claude CLI at ~/.claude (native install, can self-update)
 - ~/.claude/bin is in PATH — custom scripts placed here by the user are available to you
 - ~/.claude/init.d/*.sh scripts run once on first container create (not on subsequent starts)
-- Extra host directories may be mounted via CLAUDE_MOUNT_* env vars — check what's available if you need files outside the workspace
+- Extra host directories may be mounted via CLAUDEBOX_MOUNT_* env vars — check what's available if you need files outside the workspace
 
 ## IMPORTANT
 If you need to overwrite or restructure this CLAUDE.md file for your project, FIRST save the container environment notes above to your memory or to a separate file (e.g. ~/.claude/CONTAINER.md) so you don't lose the container-specific information. These notes are auto-generated only on first run and won't be recreated if the file already exists.
@@ -220,19 +227,26 @@ if [ ! -f "$INIT_MARKER" ]; then
 	dbg "init marker created"
 fi
 
+# mode env vars — CLAUDEBOX_MODE_* canonical, CLAUDE_MODE_* legacy fallback
+_mode_api="${CLAUDEBOX_MODE_API:-${CLAUDE_MODE_API:-}}"
+_mode_api_port="${CLAUDEBOX_MODE_API_PORT:-${CLAUDE_MODE_API_PORT:-8080}}"
+_mode_telegram="${CLAUDEBOX_MODE_TELEGRAM:-${CLAUDE_MODE_TELEGRAM:-}}"
+_mode_cron="${CLAUDEBOX_MODE_CRON:-${CLAUDE_MODE_CRON:-}}"
+_mode_cron_file="${CLAUDEBOX_MODE_CRON_FILE:-${CLAUDE_MODE_CRON_FILE:-}}"
+
 # api mode — run fastapi server instead of claude
-if [ "${CLAUDE_MODE_API:-}" = "1" ]; then
-	dbg "mode: api server (port ${CLAUDE_MODE_API_PORT:-8080})"
+if [ "$_mode_api" = "1" ]; then
+	dbg "mode: api server (port $_mode_api_port)"
 	mkdir -p /workspaces
 	chown claude:claude /workspaces
 	CLAUDE_UID=$(id -u claude)
 	CLAUDE_GID=$(id -g claude)
 	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
-		bash -c "export HOME=/home/claude && export CLAUDE_CONFIG_DIR=/home/claude/.claude && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH && exec python3 /home/claude/api_server.py"
+		bash -c "export HOME=/home/claude && export CLAUDE_CONFIG_DIR=/home/claude/.claude && export CLAUDEBOX_MODE_API_PORT=$_mode_api_port && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH && exec python3 /home/claude/api_server.py"
 fi
 
 # telegram mode — run telegram bot instead of claude
-if [ "${CLAUDE_MODE_TELEGRAM:-}" = "1" ]; then
+if [ "$_mode_telegram" = "1" ]; then
 	dbg "mode: telegram bot"
 	mkdir -p /workspaces
 	chown claude:claude /workspaces
@@ -240,6 +254,26 @@ if [ "${CLAUDE_MODE_TELEGRAM:-}" = "1" ]; then
 	CLAUDE_GID=$(id -g claude)
 	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
 		bash -c "export HOME=/home/claude && export CLAUDE_CONFIG_DIR=/home/claude/.claude && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH && exec python3 /home/claude/telegram_bot.py"
+fi
+
+# cron mode — run scheduler that fires claude per cron yaml
+if [ "$_mode_cron" = "1" ]; then
+	dbg "mode: cron (file: $_mode_cron_file)"
+	if [ -z "$_mode_cron_file" ]; then
+		echo "❌ cron mode enabled but CLAUDEBOX_MODE_CRON_FILE is not set" >&2
+		exit 1
+	fi
+	if [ ! -f "$_mode_cron_file" ]; then
+		echo "❌ cron file not found: $_mode_cron_file" >&2
+		exit 1
+	fi
+	CLAUDE_UID=$(id -u claude)
+	CLAUDE_GID=$(id -g claude)
+	# ensure claude owns the cron history dir
+	mkdir -p /home/claude/.claude/cron/history
+	chown -R claude:claude /home/claude/.claude/cron 2>/dev/null || true
+	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
+		bash -c "export HOME=/home/claude && export CLAUDE_CONFIG_DIR=/home/claude/.claude && export CLAUDEBOX_MODE_CRON_FILE=$(printf '%q' "$_mode_cron_file") && export CLAUDEBOX_WORKSPACE=$(printf '%q' "${CLAUDE_WORKSPACE:-/workspace}") && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH && exec python3 /home/claude/cron.py"
 fi
 
 # build the command to run as claude

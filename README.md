@@ -33,6 +33,7 @@ Beyond just running Claude Code in Docker, claudebox adds skill injection (auto-
     - [OpenAI-Compatible Endpoints](#openai-compatible-endpoints)
     - [MCP Server](#mcp-server)
   - [Telegram Mode](#telegram-mode)
+  - [Cron Mode](#cron-mode)
 - [Customization](#customization)
   - [Custom Scripts](#custom-scripts-claudebin)
   - [Init Hooks](#init-hooks-claudeinitd)
@@ -55,11 +56,11 @@ The install script pulls the Docker image, generates SSH keys for git operations
 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
 
 # minimal image (just the essentials — Claude installs what it needs on the fly)
-CLAUDE_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
+CLAUDEBOX_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
 
 # custom binary name (e.g. if you want to call it 'claude' instead of 'claudebox')
 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash -s -- claude
-# or: CLAUDE_BIN_NAME=claude curl -fsSL .../install.sh | bash
+# or: CLAUDEBOX_BIN_NAME=claude curl -fsSL .../install.sh | bash
 ```
 
 ### Manual setup
@@ -98,7 +99,7 @@ curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/inst
 Just enough to run Claude: Ubuntu, git, curl, Node.js, and Docker. Claude has passwordless sudo, so it will install whatever else it needs on the fly via `apt-get`, `pip`, `npm`, etc. Smaller image to pull, but the first run takes longer as Claude sorts out its dependencies.
 
 ```bash
-CLAUDE_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
+CLAUDEBOX_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
 ```
 
 Use `~/.claude/init.d/*.sh` hooks (see [Init Hooks](#init-hooks-claudeinitd)) to pre-install your tools on first container create so Claude doesn't burn tokens figuring out package management.
@@ -107,7 +108,7 @@ Use `~/.claude/init.d/*.sh` hooks (see [Init Hooks](#init-hooks-claudeinitd)) to
 
 |                                       | `latest` (full) | `latest-minimal` |
 | ------------------------------------- | :-------------: | :--------------: |
-| Ubuntu 22.04                          |       yes       |       yes        |
+| Ubuntu 24.04                          |       yes       |       yes        |
 | git, curl, wget, jq                   |       yes       |       yes        |
 | Node.js LTS + npm                     |       yes       |       yes        |
 | Docker CE + Compose                   |       yes       |       yes        |
@@ -161,39 +162,51 @@ Use `~/.claude/init.d/*.sh` hooks (see [Init Hooks](#init-hooks-claudeinitd)) to
 
 Set these on your host (e.g., in `~/.bashrc` or `~/.zshrc`). The wrapper script forwards them into the container automatically. These apply across all modes.
 
-| Variable                  | Description                                                                     | Default              |
-| ------------------------- | ------------------------------------------------------------------------------- | -------------------- |
-| `ANTHROPIC_API_KEY`       | Anthropic API key for authentication                                            | _(none)_             |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token for authentication                                                  | _(none)_             |
-| `CLAUDE_GIT_NAME`         | Git `user.name` inside the container                                            | _(none)_             |
-| `CLAUDE_GIT_EMAIL`        | Git `user.email` inside the container                                           | _(none)_             |
-| `CLAUDE_DATA_DIR`         | Override the `.claude` data directory on the host                               | `~/.claude`          |
-| `CLAUDE_SSH_DIR`          | Override the SSH key directory mounted into the container                        | `~/.ssh/claudebox`   |
-| `CLAUDE_INSTALL_DIR`      | Where to install the wrapper binary (install-time only)                         | `/usr/local/bin`     |
-| `CLAUDE_BIN_NAME`         | Name of the wrapper binary (install-time only)                                  | `claudebox`          |
-| `CLAUDE_IMAGE`            | Override the Docker image used by the wrapper                                   | `psyb0t/claudebox:latest` |
-| `CLAUDE_ENV_*`            | Forward custom env vars into the container (prefix stripped: `CLAUDE_ENV_FOO=bar` becomes `FOO=bar`) | _(none)_ |
-| `CLAUDE_MOUNT_*`          | Mount extra host directories into the container                                 | _(none)_             |
-| `DEBUG`                   | Enable debug logging with timestamps throughout the entrypoint and API server   | _(none)_             |
+All wrapper/installer config uses the `CLAUDEBOX_*` prefix. Anything you want available **inside** the container goes through `CLAUDEBOX_ENV_*` (prefix stripped on the way in). Legacy `CLAUDE_*` / `CLAUDE_ENV_*` / `CLAUDE_MOUNT_*` and bare `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` / `DEBUG` still work for backwards compat.
+
+| Variable                   | Description                                                                                | Default                   |
+| -------------------------- | ------------------------------------------------------------------------------------------ | ------------------------- |
+| `CLAUDEBOX_GIT_NAME`       | Git `user.name` inside the container                                                       | _(none)_                  |
+| `CLAUDEBOX_GIT_EMAIL`      | Git `user.email` inside the container                                                      | _(none)_                  |
+| `CLAUDEBOX_DATA_DIR`       | Override the `.claude` data directory on the host                                          | `~/.claude`               |
+| `CLAUDEBOX_SSH_DIR`        | Override the SSH key directory mounted into the container                                  | `~/.ssh/claudebox`        |
+| `CLAUDEBOX_INSTALL_DIR`    | Where to install the wrapper binary (install-time only)                                    | `/usr/local/bin`          |
+| `CLAUDEBOX_BIN_NAME`       | Name of the wrapper binary (install-time only)                                             | `claudebox`               |
+| `CLAUDEBOX_SKIP_PULL`      | Skip the `docker pull` during install (install-time only)                                  | _(none)_                  |
+| `CLAUDEBOX_FORCE_PULL`     | Force `docker pull` even if image is already present (install-time only)                   | _(none)_                  |
+| `CLAUDEBOX_IMAGE`          | Override the Docker image used by the wrapper                                              | `psyb0t/claudebox:latest` |
+| `CLAUDEBOX_MINIMAL`        | When set, use the minimal image variant                                                    | _(none)_                  |
+| `CLAUDEBOX_CONTAINER_NAME` | Override the per-workspace container name                                                  | derived from `$PWD`       |
+| `CLAUDEBOX_ENV_*`          | Forward env vars into the container (prefix stripped: `CLAUDEBOX_ENV_FOO=bar` → `FOO=bar`) | _(none)_                  |
+| `CLAUDEBOX_MOUNT_*`        | Mount extra host directories into the container                                            | _(none)_                  |
+
+Auth and in-container settings go through `CLAUDEBOX_ENV_*`:
+
+| Forwarded as                     | Set on host as                                 |
+| -------------------------------- | ---------------------------------------------- |
+| `ANTHROPIC_API_KEY`              | `CLAUDEBOX_ENV_ANTHROPIC_API_KEY`              |
+| `CLAUDE_CODE_OAUTH_TOKEN`        | `CLAUDEBOX_ENV_CLAUDE_CODE_OAUTH_TOKEN`        |
+| `DEBUG`                          | `CLAUDEBOX_ENV_DEBUG`                          |
+| `CLAUDE_CODE_DISABLE_1M_CONTEXT` | `CLAUDEBOX_ENV_CLAUDE_CODE_DISABLE_1M_CONTEXT` |
 
 #### Forwarding environment variables
 
-The `CLAUDE_ENV_` prefix lets you inject arbitrary environment variables into the container. The prefix is stripped before forwarding:
+The `CLAUDEBOX_ENV_` prefix injects arbitrary env vars into the container. The prefix is stripped before forwarding:
 
 ```bash
 # inside the container these become: GITHUB_TOKEN=xxx, MY_VAR=hello
-CLAUDE_ENV_GITHUB_TOKEN=xxx CLAUDE_ENV_MY_VAR=hello claudebox "do stuff"
+CLAUDEBOX_ENV_GITHUB_TOKEN=xxx CLAUDEBOX_ENV_MY_VAR=hello claudebox "do stuff"
 ```
 
 #### Extra volume mounts
 
-The `CLAUDE_MOUNT_` prefix mounts additional host directories into the container:
+The `CLAUDEBOX_MOUNT_` prefix mounts additional host directories into the container:
 
 ```bash
-CLAUDE_MOUNT_DATA=/data claudebox "process the data"                    # same path inside container
-CLAUDE_MOUNT_1=/opt/configs CLAUDE_MOUNT_2=/var/logs claudebox "go"     # mount multiple directories
-CLAUDE_MOUNT_STUFF=/host/path:/container/path claudebox "do stuff"      # explicit source:dest mapping
-CLAUDE_MOUNT_RO=/data:/data:ro claudebox "read the data"                # read-only mount
+CLAUDEBOX_MOUNT_DATA=/data claudebox "process the data"                    # same path inside container
+CLAUDEBOX_MOUNT_1=/opt/configs CLAUDEBOX_MOUNT_2=/var/logs claudebox "go"  # mount multiple directories
+CLAUDEBOX_MOUNT_STUFF=/host/path:/container/path claudebox "do stuff"      # explicit source:dest mapping
+CLAUDEBOX_MOUNT_RO=/data:/data:ro claudebox "read the data"                # read-only mount
 ```
 
 If the value contains `:`, it is passed directly as Docker `-v` syntax. Otherwise, the same path is used on both host and container sides.
@@ -266,8 +279,8 @@ claudebox "extract the author and title" --output-format json \
 
 #### Model Selection
 
-| Alias        | Model                                | Best for                                              |
-| ------------ | ------------------------------------ | ----------------------------------------------------- |
+| Alias        | Model                                | Best for                                               |
+| ------------ | ------------------------------------ | ------------------------------------------------------ |
 | `opus`       | Claude Opus 4.6                      | Complex reasoning, architecture design, hard debugging |
 | `sonnet`     | Claude Sonnet 4.6                    | Daily coding tasks, balanced speed and intelligence    |
 | `haiku`      | Claude Haiku 4.5                     | Quick lookups, simple tasks, high-volume operations    |
@@ -309,23 +322,36 @@ You can also pin specific model versions using full model names like `claude-opu
     {
       "role": "assistant",
       "content": [
-        { "type": "tool_use", "id": "toolu_abc", "name": "Bash", "input": { "command": "hostname" } }
+        {
+          "type": "tool_use",
+          "id": "toolu_abc",
+          "name": "Bash",
+          "input": { "command": "hostname" }
+        }
       ]
     },
     {
       "role": "tool_result",
       "content": [
-        { "type": "toolResult", "toolUseId": "toolu_abc", "isError": false, "content": "mothership" }
+        {
+          "type": "toolResult",
+          "toolUseId": "toolu_abc",
+          "isError": false,
+          "content": "mothership"
+        }
       ]
     },
     {
       "role": "assistant",
-      "content": [
-        { "type": "text", "text": "The hostname is mothership." }
-      ]
+      "content": [{ "type": "text", "text": "The hostname is mothership." }]
     }
   ],
-  "system": { "sessionId": "...", "model": "claude-opus-4-6", "cwd": "/workspace", "tools": ["Bash", "Read", "..."] },
+  "system": {
+    "sessionId": "...",
+    "model": "claude-opus-4-6",
+    "cwd": "/workspace",
+    "tools": ["Bash", "Read", "..."]
+  },
   "numTurns": 2,
   "durationMs": 10600,
   "totalCostUsd": 0.049,
@@ -428,8 +454,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - CLAUDE_MODE_API=1
-      - CLAUDE_MODE_API_TOKEN=your-secret-token
+      - CLAUDEBOX_MODE_API=1
+      - CLAUDEBOX_MODE_API_TOKEN=your-secret-token
       - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
     volumes:
       - ~/.claude:/home/claude/.claude
@@ -437,12 +463,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
 
-| Variable                | Description                                                              | Default  |
-| ----------------------- | ------------------------------------------------------------------------ | -------- |
-| `CLAUDE_MODE_API`       | Set to `1` to start in API server mode                                   | _(none)_ |
-| `CLAUDE_MODE_API_PORT`  | Port the API server listens on                                           | `8080`   |
-| `CLAUDE_MODE_API_TOKEN` | Bearer token for API authentication (if unset, no auth is required)      | _(none)_ |
-| `DEBUG`                 | Set to `1` or `true` for structured JSON debug logging                   | _(none)_ |
+| Variable                   | Description                                                         | Default  |
+| -------------------------- | ------------------------------------------------------------------- | -------- |
+| `CLAUDEBOX_MODE_API`       | Set to `1` to start in API server mode                              | _(none)_ |
+| `CLAUDEBOX_MODE_API_PORT`  | Port the API server listens on                                      | `8080`   |
+| `CLAUDEBOX_MODE_API_TOKEN` | Bearer token for API authentication (if unset, no auth is required) | _(none)_ |
+| `DEBUG`                    | Set to `1` or `true` for structured JSON debug logging              | _(none)_ |
+
+> Legacy `CLAUDE_MODE_API`, `CLAUDE_MODE_API_PORT`, `CLAUDE_MODE_API_TOKEN` are still accepted as fallbacks.
 
 The API server outputs structured JSON logs (timestamp, level, logger, function name, line number, and file) for every request, error, and lifecycle event.
 
@@ -457,20 +485,20 @@ curl -X POST http://localhost:8080/run \
   -d '{"prompt": "what does this repo do", "workspace": "myproject"}'
 ```
 
-| Field                | Type   | Description                                                              | Default         |
-| -------------------- | ------ | ------------------------------------------------------------------------ | --------------- |
-| `prompt`             | string | The prompt to send to Claude Code                                        | _(required)_    |
-| `workspace`          | string | Subpath under `/workspaces` (e.g., `myproject` resolves to `/workspaces/myproject`) | `/workspaces` |
-| `model`              | string | Model alias or full model name (see [Model Selection](#model-selection)) | account default |
-| `systemPrompt`       | string | Replace the default system prompt entirely                               | _(none)_        |
-| `appendSystemPrompt` | string | Append text to the default system prompt without replacing it            | _(none)_        |
-| `jsonSchema`         | string | A JSON Schema string for structured output — Claude will return JSON matching this schema | _(none)_ |
-| `effort`             | string | Reasoning effort level: `low`, `medium`, `high`, or `max`               | _(none)_        |
-| `outputFormat`       | string | Response format: `json` (default) or `json-verbose` (includes full tool call history) | `json` |
-| `noContinue`         | bool   | If true, start a fresh session instead of continuing the previous one    | `false`         |
-| `resume`             | string | Resume a specific session by its session ID                              | _(none)_        |
-| `fireAndForget`      | bool   | If true, the Claude process keeps running even if the HTTP client disconnects | `false`    |
-| `async`              | bool   | If true, return immediately with a `runId` and run in the background     | `false`         |
+| Field                | Type   | Description                                                                               | Default         |
+| -------------------- | ------ | ----------------------------------------------------------------------------------------- | --------------- |
+| `prompt`             | string | The prompt to send to Claude Code                                                         | _(required)_    |
+| `workspace`          | string | Subpath under `/workspaces` (e.g., `myproject` resolves to `/workspaces/myproject`)       | `/workspaces`   |
+| `model`              | string | Model alias or full model name (see [Model Selection](#model-selection))                  | account default |
+| `systemPrompt`       | string | Replace the default system prompt entirely                                                | _(none)_        |
+| `appendSystemPrompt` | string | Append text to the default system prompt without replacing it                             | _(none)_        |
+| `jsonSchema`         | string | A JSON Schema string for structured output — Claude will return JSON matching this schema | _(none)_        |
+| `effort`             | string | Reasoning effort level: `low`, `medium`, `high`, or `max`                                 | _(none)_        |
+| `outputFormat`       | string | Response format: `json` (default) or `json-verbose` (includes full tool call history)     | `json`          |
+| `noContinue`         | bool   | If true, start a fresh session instead of continuing the previous one                     | `false`         |
+| `resume`             | string | Resume a specific session by its session ID                                               | _(none)_        |
+| `fireAndForget`      | bool   | If true, the Claude process keeps running even if the HTTP client disconnects             | `false`         |
+| `async`              | bool   | If true, return immediately with a `runId` and run in the background                      | `false`         |
 
 Every response includes a `runId` field that uniquely identifies the run.
 
@@ -496,12 +524,12 @@ Completed results are cached until first read — once you fetch a completed res
 
 **`GET /run/result?runId=X`** — poll for the result of an async (or any) run:
 
-| Status        | Response                                            |
-| ------------- | --------------------------------------------------- |
-| `running`     | `{"runId": "...", "workspace": "...", "status": "running"}` |
-| `completed`   | Full result JSON with `runId` and `workspace` injected (then purged from cache) |
-| `failed`      | `{"runId": "...", "workspace": "...", "status": "failed", "error": "..."}` (then purged) |
-| `cancelled`   | `{"runId": "...", "workspace": "...", "status": "cancelled"}` (then purged) |
+| Status      | Response                                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------- |
+| `running`   | `{"runId": "...", "workspace": "...", "status": "running"}`                              |
+| `completed` | Full result JSON with `runId` and `workspace` injected (then purged from cache)          |
+| `failed`    | `{"runId": "...", "workspace": "...", "status": "failed", "error": "..."}` (then purged) |
+| `cancelled` | `{"runId": "...", "workspace": "...", "status": "cancelled"}` (then purged)              |
 
 Returns **404** if the run ID is not found (never existed, already read, or expired).
 
@@ -534,8 +562,8 @@ Directory listing response:
 {
   "path": "myproject/src",
   "entries": [
-    {"name": "main.py", "type": "file", "size": 1234},
-    {"name": "utils", "type": "dir"}
+    { "name": "main.py", "type": "file", "size": 1234 },
+    { "name": "utils", "type": "dir" }
   ]
 }
 ```
@@ -560,7 +588,7 @@ curl -X DELETE "http://localhost:8080/files/myproject/src/old.py" -H "Authorizat
 **`GET /health`** — health check endpoint (no authentication required):
 
 ```json
-{"status": "ok"}
+{ "status": "ok" }
 ```
 
 **`GET /status`** — returns busy workspaces and all tracked runs (running, completed, failed, cancelled):
@@ -569,7 +597,11 @@ curl -X DELETE "http://localhost:8080/files/myproject/src/old.py" -H "Authorizat
 {
   "busyWorkspaces": ["/workspaces/myproject"],
   "runs": [
-    {"runId": "abc123", "workspace": "/workspaces/myproject", "status": "running"}
+    {
+      "runId": "abc123",
+      "workspace": "/workspaces/myproject",
+      "status": "running"
+    }
   ]
 }
 ```
@@ -633,11 +665,11 @@ curl -X POST http://localhost:8080/openai/v1/chat/completions \
 
 **Custom headers** for claudebox-specific behavior:
 
-| Header                          | Description                                                       |
-| ------------------------------- | ----------------------------------------------------------------- |
-| `X-Claude-Workspace`            | Workspace subpath under `/workspaces` to run in                   |
-| `X-Claude-Continue`             | Set to `1`, `true`, or `yes` to continue the previous session     |
-| `X-Claude-Append-System-Prompt` | Text to append to the system prompt for this request              |
+| Header                          | Description                                                   |
+| ------------------------------- | ------------------------------------------------------------- |
+| `X-Claude-Workspace`            | Workspace subpath under `/workspaces` to run in               |
+| `X-Claude-Continue`             | Set to `1`, `true`, or `yes` to continue the previous session |
+| `X-Claude-Append-System-Prompt` | Text to append to the system prompt for this request          |
 
 **LiteLLM integration example:**
 
@@ -674,13 +706,13 @@ If your MCP client does not support custom headers, you can pass the API token a
 
 **Available tools:**
 
-| Tool          | Description                                                                                                     |
-| ------------- | --------------------------------------------------------------------------------------------------------------- |
+| Tool          | Description                                                                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `claude_run`  | Run a prompt through Claude Code. Parameters: `prompt`, `model`, `system_prompt`, `append_system_prompt`, `json_schema`, `workspace`, `no_continue`, `resume`, `effort` |
-| `list_files`  | List files and directories in the workspace                                                                     |
-| `read_file`   | Read the contents of a file from the workspace                                                                  |
-| `write_file`  | Write content to a file in the workspace (creates parent directories automatically)                             |
-| `delete_file` | Delete a file from the workspace                                                                                |
+| `list_files`  | List files and directories in the workspace                                                                                                                             |
+| `read_file`   | Read the contents of a file from the workspace                                                                                                                          |
+| `write_file`  | Write content to a file in the workspace (creates parent directories automatically)                                                                                     |
+| `delete_file` | Delete a file from the workspace                                                                                                                                        |
 
 ### Telegram Mode
 
@@ -697,8 +729,8 @@ Talk to Claude Code from Telegram. Each chat gets its own isolated workspace and
 # DM user IDs (positive) and/or group chat IDs (negative)
 # empty list = no restriction (dangerous — anyone can talk to your bot!)
 allowed_chats:
-  - 123456789       # your DM
-  - -987654321      # a group chat
+  - 123456789 # your DM
+  - -987654321 # a group chat
 
 # defaults applied to chats without explicit overrides
 default:
@@ -736,8 +768,8 @@ services:
   claudebox-telegram:
     image: psyb0t/claudebox:latest
     environment:
-      - CLAUDE_MODE_TELEGRAM=1
-      - CLAUDE_TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+      - CLAUDEBOX_MODE_TELEGRAM=1
+      - CLAUDEBOX_TELEGRAM_BOT_TOKEN=123456:ABC-DEF
       - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
     volumes:
       - ~/.claude:/home/claude/.claude
@@ -747,26 +779,93 @@ services:
 
 #### Telegram environment variables
 
-| Variable                    | Description                                                  | Default                             |
-| --------------------------- | ------------------------------------------------------------ | ----------------------------------- |
-| `CLAUDE_MODE_TELEGRAM`      | Set to `1` to start in Telegram bot mode                     | _(none)_                            |
-| `CLAUDE_TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather)          | _(none)_                            |
-| `CLAUDE_TELEGRAM_CONFIG`    | Path to the YAML config file inside the container            | `/home/claude/.claude/telegram.yml` |
+| Variable                    | Description                                         | Default                             |
+| --------------------------- | --------------------------------------------------- | ----------------------------------- |
+| `CLAUDEBOX_MODE_TELEGRAM`   | Set to `1` to start in Telegram bot mode            | _(none)_                            |
+| `CLAUDEBOX_TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather) | _(none)_                            |
+| `CLAUDEBOX_TELEGRAM_CONFIG`    | Path to the YAML config file inside the container   | `/home/claude/.claude/telegram.yml` |
+
+> Legacy `CLAUDE_MODE_TELEGRAM`, `CLAUDE_TELEGRAM_BOT_TOKEN`, `CLAUDE_TELEGRAM_CONFIG` are still accepted as fallbacks.
 
 #### Bot commands
 
-| Command                       | Description                                                        |
-| ----------------------------- | ------------------------------------------------------------------ |
-| any text message              | Sent to Claude as a prompt in the chat's workspace                 |
-| send a file/photo/video/voice | Saved to workspace; the caption becomes the prompt (if present)    |
-| `/bash <command>`             | Run a shell command directly in the chat's workspace               |
-| `/fetch <path>`               | Get a file from the workspace sent as a Telegram attachment        |
-| `/cancel`                     | Kill the running Claude process for this chat                      |
-| `/status`                     | Show which chats currently have running processes                   |
-| `/config`                     | Display this chat's current configuration                          |
-| `/reload`                     | Hot-reload the YAML config file without restarting the container   |
+| Command                       | Description                                                      |
+| ----------------------------- | ---------------------------------------------------------------- |
+| any text message              | Sent to Claude as a prompt in the chat's workspace               |
+| send a file/photo/video/voice | Saved to workspace; the caption becomes the prompt (if present)  |
+| `/bash <command>`             | Run a shell command directly in the chat's workspace             |
+| `/fetch <path>`               | Get a file from the workspace sent as a Telegram attachment      |
+| `/cancel`                     | Kill the running Claude process for this chat                    |
+| `/status`                     | Show which chats currently have running processes                |
+| `/config`                     | Display this chat's current configuration                        |
+| `/reload`                     | Hot-reload the YAML config file without restarting the container |
 
 Claude can send files back by including `[SEND_FILE: relative/path]` in its response text. Images are sent as photos, videos as video messages, and everything else as document attachments. Long responses are automatically split across multiple messages to stay within Telegram's 4096-character limit.
+
+### Cron Mode
+
+Run scheduled Claude jobs from a YAML cron file. Each job has a cron expression and a multiline instruction. Output streams to `~/.claude/cron/history/<workspace-slug>/<YYYYMMDD-HHMMSS>-<job-name>/` as `activity.jsonl` (Claude's stream-json output) alongside `stderr.log` and `meta.json`.
+
+1. **Write a cron yaml** (see `cron.yml.example`):
+
+```yaml
+jobs:
+  - name: every_30_seconds
+    schedule: "*/30 * * * * *" # 6-field = sec min hr dom mon dow
+    model: haiku # optional
+    instruction: |
+      Write the current UTC timestamp to ./status.txt.
+
+  - name: hourly_repo_check
+    schedule: "0 * * * *" # 5-field = standard cron, every hour at :00
+    instruction: |
+      Look at the git log for the last hour. Summarize commits.
+      If you have an MCP server configured (e.g. for Telegram), use it to
+      send the summary to the configured chat.
+
+  - name: nightly_cleanup
+    schedule: "0 3 * * *"
+    instruction: |
+      Find files older than 7 days under ./tmp and delete them.
+      Report what you removed.
+```
+
+**Cron syntax**: standard 5-field (`min hr dom mon dow`) for minute resolution, or 6-field (`sec min hr dom mon dow`) for sub-minute resolution — `*/30 * * * * *` fires every 30 seconds, `*/5 * * * * *` every 5 seconds, etc.
+
+2. **Run it:**
+
+```yaml
+# docker-compose.yml
+services:
+  claudebox-cron:
+    image: psyb0t/claudebox:latest
+    environment:
+      - CLAUDEBOX_MODE_CRON=1
+      - CLAUDEBOX_MODE_CRON_FILE=/home/claude/.claude/cron.yaml
+      - CLAUDEBOX_WORKSPACE=/workspace
+      - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
+      - DEBUG=true # optional, verbose per-tick logs
+    volumes:
+      - ./cron.yaml:/home/claude/.claude/cron.yaml:ro
+      - ./workspace:/workspace
+      - ~/.claude:/home/claude/.claude
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+The scheduler is a single foreground process — `docker logs` shows every tick (job fired, finished, errors). All jobs share the workspace at `CLAUDEBOX_WORKSPACE`. If a previous run is still in progress when the next tick fires, that tick is skipped (logged as a warning).
+
+To target external systems (Telegram, Discord, Slack, email, web hooks, ...), tell Claude in the instruction to use an MCP server you've configured under `~/.claude` — it has full tool access during cron runs just like in interactive mode.
+
+#### Cron environment variables
+
+| Variable                   | Description                                                  | Default      |
+| -------------------------- | ------------------------------------------------------------ | ------------ |
+| `CLAUDEBOX_MODE_CRON`      | Set to `1` to start in cron mode                             | _(none)_     |
+| `CLAUDEBOX_MODE_CRON_FILE` | Path inside the container to the cron yaml                   | _(none)_     |
+| `CLAUDEBOX_WORKSPACE`      | Absolute path to the workspace directory (cwd for every job) | `/workspace` |
+| `DEBUG`                    | Set to `true` for per-tick + per-line debug logs             | _(none)_     |
+
+> Legacy `CLAUDE_MODE_CRON`, `CLAUDE_MODE_CRON_FILE`, `CLAUDE_WORKSPACE` are still accepted as fallbacks.
 
 ## Customization
 

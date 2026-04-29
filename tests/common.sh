@@ -157,6 +157,7 @@ start_container() {
 setup() {
     echo "building claudebox image (--target minimal)..."
     docker build --target minimal -t "$IMAGE" "$WORKDIR" >/dev/null 2>&1
+    mkdir -p "$WORKDIR/tests/.fixtures/mounts"
 }
 
 cleanup() {

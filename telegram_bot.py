@@ -22,9 +22,11 @@ from telegram.ext import (  # isort: skip
 
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get("CLAUDE_TELEGRAM_BOT_TOKEN", "")
-CONFIG_PATH = os.environ.get(
-    "CLAUDE_TELEGRAM_CONFIG", "/home/claude/.claude/telegram.yml"
+BOT_TOKEN = os.environ.get("CLAUDEBOX_TELEGRAM_BOT_TOKEN") or os.environ.get("CLAUDE_TELEGRAM_BOT_TOKEN", "")
+CONFIG_PATH = (
+    os.environ.get("CLAUDEBOX_TELEGRAM_CONFIG")
+    or os.environ.get("CLAUDE_TELEGRAM_CONFIG")
+    or "/home/claude/.claude/telegram.yml"
 )
 ROOT_WORKSPACE = "/workspaces"
 CLAUDE_MD_TEMPLATE = "/home/claude/.claude/CLAUDE.md.template"
@@ -545,7 +547,7 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def main() -> None:
     if not BOT_TOKEN:
-        print("CLAUDE_TELEGRAM_BOT_TOKEN not set", file=sys.stderr)
+        print("CLAUDEBOX_TELEGRAM_BOT_TOKEN not set", file=sys.stderr)
         sys.exit(1)
 
     logging.basicConfig(

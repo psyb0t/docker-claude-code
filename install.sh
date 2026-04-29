@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-BIN_NAME="${1:-${CLAUDE_BIN_NAME:-claudebox}}"
-INSTALL_DIR="${CLAUDE_INSTALL_DIR:-/usr/local/bin}"
+BIN_NAME="${1:-${CLAUDEBOX_BIN_NAME:-${CLAUDE_BIN_NAME:-claudebox}}}"
+INSTALL_DIR="${CLAUDEBOX_INSTALL_DIR:-${CLAUDE_INSTALL_DIR:-/usr/local/bin}}"
 BIN_PATH="$INSTALL_DIR/$BIN_NAME"
 
 echo "🚀 Starting Claude Code setup (binary: $BIN_NAME)..."
@@ -33,9 +33,17 @@ else
 fi
 
 CLAUDE_TAG="latest"
-[ -n "$CLAUDE_MINIMAL" ] && CLAUDE_TAG="latest-minimal"
-echo "📦 Pulling Claude Code image (tag: $CLAUDE_TAG)..."
-docker pull "psyb0t/claudebox:$CLAUDE_TAG"
+_minimal="${CLAUDEBOX_MINIMAL:-${CLAUDE_MINIMAL:-}}"
+[ -n "$_minimal" ] && CLAUDE_TAG="latest-minimal"
+if [ "${CLAUDEBOX_SKIP_PULL:-}" = "1" ]; then
+	echo "📦 Skipping image pull (CLAUDEBOX_SKIP_PULL=1)"
+elif docker image inspect "psyb0t/claudebox:$CLAUDE_TAG" >/dev/null 2>&1; then
+	echo "📦 Image psyb0t/claudebox:$CLAUDE_TAG already present locally, skipping pull (set CLAUDEBOX_FORCE_PULL=1 to override)"
+	[ "${CLAUDEBOX_FORCE_PULL:-}" = "1" ] && docker pull "psyb0t/claudebox:$CLAUDE_TAG"
+else
+	echo "📦 Pulling Claude Code image (tag: $CLAUDE_TAG)..."
+	docker pull "psyb0t/claudebox:$CLAUDE_TAG"
+fi
 
 # get wrapper.sh — from same dir if running locally, otherwise download from GitHub
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-/dev/null}")" 2>/dev/null && pwd)"
