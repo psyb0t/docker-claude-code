@@ -28,6 +28,7 @@
 # after each job finishes.
 
 model: haiku                        # default model for all jobs
+effort: medium                      # default reasoning effort: low|medium|high|xhigh|max
 append_system_prompt: |             # appended to system prompt for all jobs
   The current date and time is {system_datetime}.
 # telegram_chat_id: -1001234567890  # send all job results here by default
@@ -41,6 +42,7 @@ jobs:
   - name: hourly_repo_check
     schedule: "0 * * * *"
     model: sonnet                   # override: use sonnet for this job
+    effort: high                    # override: bump reasoning for this job
     # telegram_chat_id: -1001234567890  # per-job override
     instruction: |
       Look at the git log for the last hour. Summarize commits.

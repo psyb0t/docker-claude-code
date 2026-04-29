@@ -72,6 +72,18 @@ def _validate_str_field(value: Any, label: str) -> None:
         raise ValueError(f"'{label}' must be a string")
 
 
+_VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+
+
+def _validate_effort(value: Any, label: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str) or value not in _VALID_EFFORTS:
+        raise ValueError(
+            f"'{label}' must be one of {sorted(_VALID_EFFORTS)}"
+        )
+
+
 def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     log.debug("loading cron file: %s", path)
     with open(path) as f:
@@ -79,8 +91,9 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not isinstance(data, dict) or "jobs" not in data:
         raise ValueError("cron file must be a mapping with a 'jobs' key")
 
-    for field in ("model", "system_prompt", "append_system_prompt"):
+    for field in ("model", "effort", "system_prompt", "append_system_prompt"):
         _validate_str_field(data.get(field), field)
+    _validate_effort(data.get("effort"), "effort")
 
     tg_chat = data.get("telegram_chat_id")
     if tg_chat is not None and not isinstance(tg_chat, (int, str)):
@@ -88,6 +101,7 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
     defaults: dict[str, Any] = {
         "model": data.get("model"),
+        "effort": data.get("effort"),
         "system_prompt": data.get("system_prompt"),
         "append_system_prompt": data.get("append_system_prompt"),
         "telegram_chat_id": int(tg_chat) if tg_chat is not None else None,
@@ -118,8 +132,9 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             raise ValueError(f"job '{name}': invalid cron schedule: {schedule}")
         if not instruction or not isinstance(instruction, str) or not instruction.strip():
             raise ValueError(f"job '{name}': 'instruction' is required and must be non-empty")
-        for field in ("model", "system_prompt", "append_system_prompt"):
+        for field in ("model", "effort", "system_prompt", "append_system_prompt"):
             _validate_str_field(j.get(field), f"job '{name}': {field}")
+        _validate_effort(j.get("effort"), f"job '{name}': effort")
 
         job_tg = j.get("telegram_chat_id")
         if job_tg is not None and not isinstance(job_tg, (int, str)):
@@ -130,14 +145,15 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             "schedule": schedule,
             "instruction": instruction,
             "model": j.get("model") or defaults["model"],
+            "effort": j.get("effort") or defaults["effort"],
             "system_prompt": j.get("system_prompt") or defaults["system_prompt"],
             "append_system_prompt": j.get("append_system_prompt") or defaults["append_system_prompt"],
             "telegram_chat_id": int(job_tg) if job_tg is not None else defaults["telegram_chat_id"],
         }
         valid.append(effective)
         log.debug(
-            "loaded job: name=%s schedule=%s model=%s system_prompt=%s append_system_prompt=%s",
-            name, schedule, effective["model"],
+            "loaded job: name=%s schedule=%s model=%s effort=%s system_prompt=%s append_system_prompt=%s",
+            name, schedule, effective["model"], effective["effort"],
             bool(effective["system_prompt"]), bool(effective["append_system_prompt"]),
         )
     return valid, defaults
@@ -237,6 +253,8 @@ def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> No
            "--output-format", "stream-json", "--verbose"]
     if job.get("model"):
         cmd += ["--model", job["model"]]
+    if job.get("effort"):
+        cmd += ["--effort", job["effort"]]
     if system_prompt:
         cmd += ["--system-prompt", system_prompt]
     if append_system_prompt:
@@ -247,6 +265,7 @@ def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> No
         "name": name,
         "schedule": job["schedule"],
         "model": job.get("model"),
+        "effort": job.get("effort"),
         "instruction": instruction,
         "system_prompt": system_prompt,
         "append_system_prompt": append_system_prompt,
@@ -347,6 +366,8 @@ def main() -> int:
     log.info("loaded %d job(s) from %s", len(jobs), CRON_FILE)
     if defaults.get("model"):
         log.info("default model: %s", defaults["model"])
+    if defaults.get("effort"):
+        log.info("default effort: %s", defaults["effort"])
     if defaults.get("system_prompt"):
         log.info("default system_prompt set")
     if defaults.get("append_system_prompt"):
@@ -359,6 +380,8 @@ def main() -> int:
         extras = []
         if j.get("model"):
             extras.append(f"model={j['model']}")
+        if j.get("effort"):
+            extras.append(f"effort={j['effort']}")
         if j.get("system_prompt"):
             extras.append("system_prompt=yes")
         if j.get("append_system_prompt"):

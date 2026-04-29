@@ -38,6 +38,7 @@ jobs:
 | Field                  | Description                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------ |
 | `model`                | Default model — per-job `model` overrides it                                         |
+| `effort`               | Default reasoning effort: `low`, `medium`, `high`, `xhigh`, `max` — per-job overrides |
 | `system_prompt`        | Default system prompt — replaces Claude's built-in system prompt                     |
 | `append_system_prompt` | Default text appended to the system prompt                                           |
 | `telegram_chat_id`     | Chat/channel ID to send results to — requires `CLAUDEBOX_TELEGRAM_BOT_TOKEN` env var |
