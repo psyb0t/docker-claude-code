@@ -77,6 +77,8 @@ echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}-auth"
 chmod 600 "$CLAUDE_DIR/.${container_name}-auth"
 echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}_prog-auth"
 chmod 600 "$CLAUDE_DIR/.${container_name}_prog-auth"
+echo "$AUTH_CONTENT" > "$CLAUDE_DIR/.${container_name}_cron-auth"
+chmod 600 "$CLAUDE_DIR/.${container_name}_cron-auth"
 dbg "wrote auth files"
 
 # updates are disabled by default; pass --update to opt in
@@ -118,6 +120,48 @@ if [ "${1:-}" = "clear-session" ]; then
     else
         echo "no session found for $PWD (looked in $project_dir)"
     fi
+    exit 0
+fi
+
+# cron mode — long-running daemon container, named <base>_cron
+_mode_cron="${CLAUDEBOX_MODE_CRON:-${CLAUDE_MODE_CRON:-}}"
+_mode_cron_file="${CLAUDEBOX_MODE_CRON_FILE:-${CLAUDE_MODE_CRON_FILE:-}}"
+if [ -n "$_mode_cron" ]; then
+    cron_name="${container_name}_cron"
+    dbg "cron container: $cron_name"
+
+    if [ "${1:-}" = "stop" ]; then
+        if docker ps --format '{{.Names}}' | grep -q "^${cron_name}$"; then
+            docker stop "$cron_name" >/dev/null 2>&1
+            echo "stopped $cron_name"
+        else
+            echo "cron not running"
+        fi
+        exit 0
+    fi
+
+    if docker ps --format '{{.Names}}' | grep -q "^${cron_name}$"; then
+        echo "cron already running ($cron_name)"
+        echo "  docker logs -f $cron_name"
+        exit 0
+    fi
+
+    CRON_ARGS=(
+        -e "CLAUDEBOX_MODE_CRON=1"
+        -e "CLAUDEBOX_WORKSPACE=$PWD"
+        -e "CLAUDEBOX_CONTAINER_NAME=$cron_name"
+    )
+    [ -n "$_mode_cron_file" ] && CRON_ARGS+=(-e "CLAUDEBOX_MODE_CRON_FILE=$_mode_cron_file")
+    [ "$DEBUG" = "true" ]     && CRON_ARGS+=(-e "DEBUG=true")
+
+    if docker ps -a --format '{{.Names}}' | grep -q "^${cron_name}$"; then
+        echo "restarting cron container ($cron_name)..."
+        docker start "$cron_name"
+    else
+        echo "starting cron container ($cron_name)..."
+        docker run -d --name "$cron_name" "${DOCKER_ARGS[@]}" "${CRON_ARGS[@]}" $CLAUDE_IMAGE
+    fi
+    echo "  docker logs -f $cron_name"
     exit 0
 fi
 

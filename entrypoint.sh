@@ -234,6 +234,31 @@ _mode_telegram="${CLAUDEBOX_MODE_TELEGRAM:-${CLAUDE_MODE_TELEGRAM:-}}"
 _mode_cron="${CLAUDEBOX_MODE_CRON:-${CLAUDE_MODE_CRON:-}}"
 _mode_cron_file="${CLAUDEBOX_MODE_CRON_FILE:-${CLAUDE_MODE_CRON_FILE:-}}"
 
+# combined telegram + cron mode — run both; cron in background, telegram bot in foreground
+if [ "$_mode_telegram" = "1" ] && [ "$_mode_cron" = "1" ]; then
+	dbg "mode: telegram + cron (combined)"
+	if [ -z "$_mode_cron_file" ]; then
+		echo "❌ cron mode enabled but CLAUDEBOX_MODE_CRON_FILE is not set" >&2
+		exit 1
+	fi
+	if [ ! -f "$_mode_cron_file" ]; then
+		echo "❌ cron file not found: $_mode_cron_file" >&2
+		exit 1
+	fi
+	mkdir -p /workspaces /home/claude/.claude/cron/history
+	chown claude:claude /workspaces
+	chown -R claude:claude /home/claude/.claude/cron 2>/dev/null || true
+	CLAUDE_UID=$(id -u claude)
+	CLAUDE_GID=$(id -g claude)
+	COMBINED_ENV="export HOME=/home/claude"
+	COMBINED_ENV="$COMBINED_ENV && export CLAUDE_CONFIG_DIR=/home/claude/.claude"
+	COMBINED_ENV="$COMBINED_ENV && export CLAUDEBOX_MODE_CRON_FILE=$(printf '%q' "$_mode_cron_file")"
+	COMBINED_ENV="$COMBINED_ENV && export CLAUDEBOX_WORKSPACE=$(printf '%q' "${CLAUDE_WORKSPACE:-/workspace}")"
+	COMBINED_ENV="$COMBINED_ENV && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH"
+	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
+		bash -c "$COMBINED_ENV && python3 /home/claude/cron.py & CRON_PID=\$! && trap 'kill \$CRON_PID 2>/dev/null' EXIT INT TERM && python3 /home/claude/telegram_bot.py"
+fi
+
 # api mode — run fastapi server instead of claude
 if [ "$_mode_api" = "1" ]; then
 	dbg "mode: api server (port $_mode_api_port)"

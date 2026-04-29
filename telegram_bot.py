@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 
 import asyncio
+import json
 import logging
 import mimetypes
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Optional
 
 import yaml
 from telegram import InputFile, Update
 from telegram.constants import ChatAction, MessageLimit
+
+from telegram_utils import BOT_TOKEN, send_long as _send_long_util
 
 from telegram.ext import (  # isort: skip
     Application,
@@ -22,7 +26,7 @@ from telegram.ext import (  # isort: skip
 
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get("CLAUDEBOX_TELEGRAM_BOT_TOKEN") or os.environ.get("CLAUDE_TELEGRAM_BOT_TOKEN", "")
+# BOT_TOKEN imported from telegram_utils
 CONFIG_PATH = (
     os.environ.get("CLAUDEBOX_TELEGRAM_CONFIG")
     or os.environ.get("CLAUDE_TELEGRAM_CONFIG")
@@ -35,6 +39,20 @@ SYSTEM_HINT = ""
 if os.path.isfile(SYSTEM_HINT_FILE):
     with open(SYSTEM_HINT_FILE) as _f:
         SYSTEM_HINT = _f.read().strip()
+
+_HOME = os.environ.get("HOME", "/home/claude")
+IS_CRON_MODE = os.environ.get("CLAUDEBOX_MODE_CRON", "") == "1"
+CRON_FILE_PATH = os.environ.get("CLAUDEBOX_MODE_CRON_FILE", "")
+CRON_MESSAGES_FILE = Path(_HOME) / ".claude" / "cron" / "telegram_messages.json"
+
+CRON_SYSTEM_HINT = ""
+if IS_CRON_MODE and CRON_FILE_PATH:
+    CRON_SYSTEM_HINT = (
+        f"You are running alongside a cron scheduler. "
+        f"The cron configuration is at {CRON_FILE_PATH!r}. "
+        "Scheduled jobs run automatically and may send their results to this chat. "
+        "When the user replies to a cron job notification, they are following up on that job's output."
+    )
 
 busy_chats: dict[int, Optional[asyncio.subprocess.Process]] = {}
 config: dict = {}
@@ -106,6 +124,16 @@ TELEGRAM_SYSTEM_HINT = (
 )
 
 
+def _load_cron_message(message_id: int) -> Optional[dict]:
+    try:
+        if not CRON_MESSAGES_FILE.exists():
+            return None
+        data = json.loads(CRON_MESSAGES_FILE.read_text())
+        return data.get(str(message_id))
+    except Exception:
+        return None
+
+
 def _build_claude_args(prompt: str, chat_cfg: dict) -> list[str]:
     args = ["claude", "--dangerously-skip-permissions"]
     if chat_cfg.get("continue", True):
@@ -115,11 +143,13 @@ def _build_claude_args(prompt: str, chat_cfg: dict) -> list[str]:
         args += ["--model", chat_cfg["model"]]
     if chat_cfg.get("system_prompt"):
         args += ["--system-prompt", chat_cfg["system_prompt"]]
-    # always append: system hint + telegram hint + user's append
+    # always append: system hint + telegram hint + cron hint (if applicable) + user's append
     append_parts = []
     if SYSTEM_HINT:
         append_parts.append(SYSTEM_HINT)
     append_parts.append(TELEGRAM_SYSTEM_HINT)
+    if CRON_SYSTEM_HINT:
+        append_parts.append(CRON_SYSTEM_HINT)
     if chat_cfg.get("append_system_prompt"):
         append_parts.append(chat_cfg["append_system_prompt"])
     args += ["--append-system-prompt", "\n".join(append_parts)]
@@ -143,21 +173,7 @@ def _build_env() -> dict:
 
 
 async def _send_long(bot, chat_id: int, text: str, parse_mode: str = "HTML") -> None:
-    max_len = MessageLimit.MAX_TEXT_LENGTH
-    while text:
-        chunk = text[:max_len] if len(text) > max_len else text
-        if len(text) > max_len:
-            split_at = text.rfind("\n", 0, max_len)
-            if split_at != -1:
-                chunk = text[:split_at]
-        try:
-            await bot.send_message(chat_id=chat_id, text=chunk, parse_mode=parse_mode)
-        except Exception:
-            # if HTML parsing fails, fall back to plain text
-            await bot.send_message(chat_id=chat_id, text=chunk)
-        text = text[len(chunk) :].lstrip("\n")
-        if not text:
-            return
+    await _send_long_util(bot, chat_id, text, parse_mode)
 
 
 def _is_image(path: str) -> bool:
@@ -343,11 +359,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not user or not chat or not is_allowed(chat.id, user.id):
         return
 
-    text = update.effective_message.text if update.effective_message else None
+    msg = update.effective_message
+    text = msg.text if msg else None
     if not text:
         return
 
-    await _run_prompt(update, context, text)
+    prompt = text
+    if IS_CRON_MODE and msg and msg.reply_to_message:
+        entry = _load_cron_message(msg.reply_to_message.message_id)
+        if entry:
+            prompt = (
+                f"[Replying to cron job <b>{entry['job_name']}</b> "
+                f"that ran at {entry['fired_at']}]\n"
+                f"Job instruction: {entry['instruction']}\n"
+                f"Job result: {entry['result']}\n\n"
+                f"User follow-up: {text}"
+            )
+            logger.info("chat %s reply to cron job %s", chat.id, entry["job_name"])
+
+    await _run_prompt(update, context, prompt)
 
 
 async def _handle_file_upload(

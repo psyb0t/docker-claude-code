@@ -19,12 +19,18 @@
 #
 # Template variables (expanded at fire time):
 #   {system_datetime} — current UTC datetime, e.g. "2026-04-29 14:35:00 UTC"
+#   {job_name}        — the job's name field
 #
 # Works in: instruction, system_prompt, append_system_prompt
+#
+# Telegram notifications: set telegram_chat_id (root or per-job) + env
+# CLAUDEBOX_TELEGRAM_BOT_TOKEN to send Claude's result to a Telegram chat
+# after each job finishes.
 
 model: haiku                        # default model for all jobs
 append_system_prompt: |             # appended to system prompt for all jobs
   The current date and time is {system_datetime}.
+# telegram_chat_id: -1001234567890  # send all job results here by default
 
 jobs:
   - name: every_thirty_seconds
@@ -35,10 +41,9 @@ jobs:
   - name: hourly_repo_check
     schedule: "0 * * * *"
     model: sonnet                   # override: use sonnet for this job
+    # telegram_chat_id: -1001234567890  # per-job override
     instruction: |
       Look at the git log for the last hour. Summarize commits.
-      If you have an MCP server configured for notifications (e.g. Telegram),
-      use it to send the summary to the configured chat.
 
   - name: nightly_cleanup
     schedule: "0 3 * * *"

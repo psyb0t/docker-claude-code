@@ -5,28 +5,28 @@ Run scheduled Claude jobs from a YAML cron file. Each job has a cron expression 
 1. **Write a cron yaml** (see `cron.yml.example`):
 
 ```yaml
-model: haiku          # default model for all jobs; per-job "model" overrides this
+model: haiku                    # default model for all jobs; per-job "model" overrides this
 append_system_prompt: |
   The current date and time is {system_datetime}.
+telegram_chat_id: -1001234567890  # optional: send results to this chat (requires CLAUDEBOX_TELEGRAM_BOT_TOKEN)
 
 jobs:
   - name: every_30_seconds
-    schedule: "*/30 * * * * *"   # 6-field = sec min hr dom mon dow
+    schedule: "*/30 * * * * *"  # 6-field = sec min hr dom mon dow
     instruction: |
       Write the current UTC timestamp to ./status.txt.
 
   - name: hourly_repo_check
-    schedule: "0 * * * *"        # 5-field = standard cron, every hour at :00
-    model: sonnet                 # override the default for this job
+    schedule: "0 * * * *"       # 5-field = standard cron, every hour at :00
+    model: sonnet                # override the default for this job
     instruction: |
       Look at the git log for the last hour. Summarize commits.
-      If you have an MCP server configured (e.g. for Telegram), use it to
-      send the summary to the configured chat.
+      Job name: {job_name}.
 
   - name: nightly_cleanup
     schedule: "0 3 * * *"
     model: opus
-    system_prompt: |              # replaces system prompt entirely for this job
+    system_prompt: |             # replaces system prompt entirely for this job
       You are a cleanup agent. Current time: {system_datetime}.
     instruction: |
       Find files older than 7 days under ./tmp and delete them.
@@ -35,23 +35,44 @@ jobs:
 
 ## Root-level fields (defaults for all jobs)
 
-| Field                 | Description                                                         |
-| --------------------- | ------------------------------------------------------------------- |
-| `model`               | Default model — per-job `model` overrides it                        |
-| `system_prompt`       | Default system prompt — replaces Claude's built-in system prompt    |
-| `append_system_prompt`| Default text appended to the system prompt                          |
+| Field                  | Description                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `model`                | Default model — per-job `model` overrides it                                         |
+| `system_prompt`        | Default system prompt — replaces Claude's built-in system prompt                     |
+| `append_system_prompt` | Default text appended to the system prompt                                           |
+| `telegram_chat_id`     | Chat/channel ID to send results to — requires `CLAUDEBOX_TELEGRAM_BOT_TOKEN` env var |
 
 ## Per-job fields
 
 Same fields as root-level, plus:
 
-| Field       | Description                                           |
-| ----------- | ----------------------------------------------------- |
-| `name`      | Unique job identifier (alphanumeric, `-`, `_`)        |
-| `schedule`  | Cron expression (5-field or 6-field)                  |
-| `instruction` | The prompt sent to Claude                           |
+| Field             | Description                                    |
+| ----------------- | ---------------------------------------------- |
+| `name`            | Unique job identifier (alphanumeric, `-`, `_`) |
+| `schedule`        | Cron expression (5-field or 6-field)           |
+| `instruction`     | The prompt sent to Claude                      |
 
-Per-job values override the root-level defaults.
+Per-job values override the root-level defaults. `telegram_chat_id` can be set at root level for all jobs and overridden per job.
+
+## Telegram notifications
+
+Set `telegram_chat_id` (root or per-job) and `CLAUDEBOX_TELEGRAM_BOT_TOKEN` to get Claude's result posted to a Telegram chat after each job finishes. The bot must already be set up — see [Telegram mode](telegram.md) for setup.
+
+```yaml
+telegram_chat_id: -1001234567890   # root default — all jobs notify here
+
+jobs:
+  - name: hourly_check
+    schedule: "0 * * * *"
+    instruction: Check for issues and report.
+
+  - name: silent_job
+    schedule: "*/5 * * * *"
+    telegram_chat_id: 0            # override: disable notifications for this job
+    instruction: Write timestamp to status.txt.
+```
+
+After each job finishes, the last `result` block from Claude's output is sent. If Claude produced no output, a "finished (no output)" notice is sent. On non-zero exit, a failure notice is sent.
 
 ## Template variables
 

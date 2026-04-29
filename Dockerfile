@@ -66,6 +66,7 @@ WORKDIR /workspace
 COPY entrypoint.sh /home/claude/entrypoint.sh
 COPY api_server.py /home/claude/api_server.py
 COPY telegram_bot.py /home/claude/telegram_bot.py
+COPY telegram_utils.py /home/claude/telegram_utils.py
 COPY cron.py /home/claude/cron.py
 COPY jsonpipe.py /home/claude/jsonpipe.py
 RUN chmod +x /home/claude/entrypoint.sh

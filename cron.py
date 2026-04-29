@@ -9,9 +9,14 @@ Workspace from CLAUDEBOX_WORKSPACE (legacy CLAUDE_WORKSPACE still accepted).
 
 Template variables (expanded at fire time in instruction, system_prompt, append_system_prompt):
   {system_datetime} — current UTC datetime, e.g. "2026-04-29 14:35:00 UTC"
+  {job_name}        — the job's name field
+
+Optional telegram notification: set telegram_chat_id (root or per-job) + CLAUDEBOX_TELEGRAM_BOT_TOKEN
+to have Claude's result sent to a Telegram chat after each job finishes.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -40,6 +45,8 @@ CRON_FILE = os.environ.get("CLAUDEBOX_MODE_CRON_FILE") or os.environ.get("CLAUDE
 WORKSPACE = os.environ.get("CLAUDEBOX_WORKSPACE") or os.environ.get("CLAUDE_WORKSPACE") or "/workspace"
 HOME = os.environ.get("HOME", "/home/claude")
 HISTORY_ROOT = Path(HOME) / ".claude" / "cron" / "history"
+TELEGRAM_MESSAGES_FILE = Path(HOME) / ".claude" / "cron" / "telegram_messages.json"
+TELEGRAM_MODE = os.environ.get("CLAUDEBOX_MODE_TELEGRAM", "") == "1"
 
 _running_jobs: dict[str, threading.Thread] = {}
 _running_lock = threading.Lock()
@@ -75,10 +82,15 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     for field in ("model", "system_prompt", "append_system_prompt"):
         _validate_str_field(data.get(field), field)
 
+    tg_chat = data.get("telegram_chat_id")
+    if tg_chat is not None and not isinstance(tg_chat, (int, str)):
+        raise ValueError("root 'telegram_chat_id' must be an int or string")
+
     defaults: dict[str, Any] = {
         "model": data.get("model"),
         "system_prompt": data.get("system_prompt"),
         "append_system_prompt": data.get("append_system_prompt"),
+        "telegram_chat_id": int(tg_chat) if tg_chat is not None else None,
     }
 
     jobs = data["jobs"]
@@ -109,6 +121,10 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         for field in ("model", "system_prompt", "append_system_prompt"):
             _validate_str_field(j.get(field), f"job '{name}': {field}")
 
+        job_tg = j.get("telegram_chat_id")
+        if job_tg is not None and not isinstance(job_tg, (int, str)):
+            raise ValueError(f"job '{name}': 'telegram_chat_id' must be an int or string")
+
         effective: dict[str, Any] = {
             "name": name,
             "schedule": schedule,
@@ -116,6 +132,7 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             "model": j.get("model") or defaults["model"],
             "system_prompt": j.get("system_prompt") or defaults["system_prompt"],
             "append_system_prompt": j.get("append_system_prompt") or defaults["append_system_prompt"],
+            "telegram_chat_id": int(job_tg) if job_tg is not None else defaults["telegram_chat_id"],
         }
         valid.append(effective)
         log.debug(
@@ -124,6 +141,78 @@ def load_jobs(path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             bool(effective["system_prompt"]), bool(effective["append_system_prompt"]),
         )
     return valid, defaults
+
+
+def _extract_result(activity_path: Path) -> str | None:
+    """Pull the result text from the last 'result' event in activity.jsonl."""
+    result = None
+    try:
+        with open(activity_path) as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                    if ev.get("type") == "result" and ev.get("result"):
+                        result = ev["result"]
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
+        pass
+    return result
+
+
+def _save_telegram_message(message_id: int, job: dict[str, Any], fired_at: datetime, result: str | None) -> None:
+    try:
+        data: dict[str, Any] = {}
+        if TELEGRAM_MESSAGES_FILE.exists():
+            try:
+                data = json.loads(TELEGRAM_MESSAGES_FILE.read_text())
+            except Exception:
+                data = {}
+        data[str(message_id)] = {
+            "job_name": job["name"],
+            "fired_at": fired_at.isoformat(),
+            "instruction": job["instruction"][:500],
+            "result": (result or "")[:2000],
+        }
+        if len(data) > 200:
+            for k in list(data.keys())[:-200]:
+                del data[k]
+        tmp = TELEGRAM_MESSAGES_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data))
+        tmp.rename(TELEGRAM_MESSAGES_FILE)
+    except Exception as e:
+        log.warning("[%s] failed to save telegram message tracking: %s", job["name"], e)
+
+
+def _notify_telegram(job: dict[str, Any], activity_path: Path, rc: int, fired_at: datetime) -> None:
+    from telegram_utils import BOT_TOKEN, make_bot, send_long
+
+    chat_id = job.get("telegram_chat_id")
+    if not chat_id:
+        return
+    if not BOT_TOKEN:
+        log.warning("[%s] telegram_chat_id set but CLAUDEBOX_TELEGRAM_BOT_TOKEN is not — skipping notify", job["name"])
+        return
+
+    result = _extract_result(activity_path)
+    if result:
+        text = f"<b>[{job['name']}]</b>\n{result}"
+    elif rc != 0:
+        text = f"<b>[{job['name']}]</b> job failed (rc={rc})"
+    else:
+        text = f"<b>[{job['name']}]</b> finished (no output)"
+
+    async def _send() -> list:
+        bot = make_bot()
+        return await send_long(bot, chat_id, text)
+
+    try:
+        messages = asyncio.run(_send())
+        log.info("[%s] telegram notification sent to %s", job["name"], chat_id)
+        if TELEGRAM_MODE and messages:
+            _save_telegram_message(messages[0].message_id, job, fired_at, result)
+    except Exception as e:
+        log.warning("[%s] telegram notify failed: %s", job["name"], e)
 
 
 def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> None:
@@ -211,6 +300,8 @@ def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> No
     else:
         log.warning("[%s] finished with rc=%s err=%s", name, rc, err)
 
+    _notify_telegram(job, activity_path, rc, fired_at)
+
 
 def _spawn_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> None:
     name = job["name"]
@@ -260,6 +351,8 @@ def main() -> int:
         log.info("default system_prompt set")
     if defaults.get("append_system_prompt"):
         log.info("default append_system_prompt set")
+    if defaults.get("telegram_chat_id"):
+        log.info("default telegram_chat_id: %s", defaults["telegram_chat_id"])
     log.info("workspace: %s (slug: %s)", WORKSPACE, workspace_slug)
     log.info("history root: %s", HISTORY_ROOT / workspace_slug)
     for j in jobs:
