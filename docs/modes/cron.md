@@ -1,0 +1,64 @@
+# Cron Mode
+
+Run scheduled Claude jobs from a YAML cron file. Each job has a cron expression and a multiline instruction. Output streams to `~/.claude/cron/history/<workspace-slug>/<YYYYMMDD-HHMMSS>-<job-name>/` as `activity.jsonl` (Claude's stream-json output) alongside `stderr.log` and `meta.json`.
+
+1. **Write a cron yaml** (see `cron.yml.example`):
+
+```yaml
+jobs:
+  - name: every_30_seconds
+    schedule: "*/30 * * * * *" # 6-field = sec min hr dom mon dow
+    model: haiku # optional
+    instruction: |
+      Write the current UTC timestamp to ./status.txt.
+
+  - name: hourly_repo_check
+    schedule: "0 * * * *" # 5-field = standard cron, every hour at :00
+    instruction: |
+      Look at the git log for the last hour. Summarize commits.
+      If you have an MCP server configured (e.g. for Telegram), use it to
+      send the summary to the configured chat.
+
+  - name: nightly_cleanup
+    schedule: "0 3 * * *"
+    instruction: |
+      Find files older than 7 days under ./tmp and delete them.
+      Report what you removed.
+```
+
+**Cron syntax**: standard 5-field (`min hr dom mon dow`) for minute resolution, or 6-field (`sec min hr dom mon dow`) for sub-minute resolution — `*/30 * * * * *` fires every 30 seconds, `*/5 * * * * *` every 5 seconds, etc.
+
+2. **Run it:**
+
+```yaml
+# docker-compose.yml
+services:
+  claudebox-cron:
+    image: psyb0t/claudebox:latest
+    environment:
+      - CLAUDEBOX_MODE_CRON=1
+      - CLAUDEBOX_MODE_CRON_FILE=/home/claude/.claude/cron.yaml
+      - CLAUDEBOX_WORKSPACE=/workspace
+      - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxx
+      - DEBUG=true # optional, verbose per-tick logs
+    volumes:
+      - ./cron.yaml:/home/claude/.claude/cron.yaml:ro
+      - ./workspace:/workspace
+      - ~/.claude:/home/claude/.claude
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+The scheduler is a single foreground process — `docker logs` shows every tick (job fired, finished, errors). All jobs share the workspace at `CLAUDEBOX_WORKSPACE`. If a previous run is still in progress when the next tick fires, that tick is skipped (logged as a warning).
+
+To target external systems (Telegram, Discord, Slack, email, web hooks, ...), tell Claude in the instruction to use an MCP server you've configured under `~/.claude` — it has full tool access during cron runs just like in interactive mode. See [Customization → MCP servers](../customization.md#mcp-servers) for setup.
+
+## Cron environment variables
+
+| Variable                   | Description                                                  | Default      |
+| -------------------------- | ------------------------------------------------------------ | ------------ |
+| `CLAUDEBOX_MODE_CRON`      | Set to `1` to start in cron mode                             | _(none)_     |
+| `CLAUDEBOX_MODE_CRON_FILE` | Path inside the container to the cron yaml                   | _(none)_     |
+| `CLAUDEBOX_WORKSPACE`      | Absolute path to the workspace directory (cwd for every job) | `/workspace` |
+| `DEBUG`                    | Set to `true` for per-tick + per-line debug logs             | _(none)_     |
+
+> Legacy `CLAUDE_MODE_CRON`, `CLAUDE_MODE_CRON_FILE`, `CLAUDE_WORKSPACE` are still accepted as fallbacks.
