@@ -50,6 +50,16 @@ HISTORY_ROOT = CRON_DIR / "history"
 TELEGRAM_MESSAGES_FILE = CRON_DIR / "telegram_messages.json"
 TELEGRAM_MODE = os.environ.get("CLAUDEBOX_MODE_TELEGRAM", "") == "1"
 
+TELEGRAM_OUTPUT_HINT = (
+    "Your final result will be posted to a Telegram chat. "
+    "Format using Telegram HTML: <b>bold</b>, <i>italic</i>, <u>underline</u>, "
+    "<s>strikethrough</s>, <code>inline code</code>, "
+    '<pre language=\"python\">code blocks</pre>, <blockquote>quotes</blockquote>. '
+    "Do NOT use markdown — no *, _, `, #, - bullets. Use HTML tags only. "
+    "Escape &, < and > as &amp; &lt; &gt; in regular text. "
+    "Keep the response concise but readable."
+)
+
 _running_jobs: dict[str, threading.Thread] = {}
 _running_lock = threading.Lock()
 _shutdown = threading.Event()
@@ -251,6 +261,11 @@ def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> No
     instruction = _expand(job["instruction"], fired_at, name)
     system_prompt = _expand(job["system_prompt"], fired_at, name) if job.get("system_prompt") else None
     append_system_prompt = _expand(job["append_system_prompt"], fired_at, name) if job.get("append_system_prompt") else None
+
+    if job.get("telegram_chat_id"):
+        append_system_prompt = (
+            (append_system_prompt + "\n\n") if append_system_prompt else ""
+        ) + TELEGRAM_OUTPUT_HINT
 
     cmd = ["claude", "--dangerously-skip-permissions", "-p", instruction,
            "--output-format", "stream-json", "--verbose"]
