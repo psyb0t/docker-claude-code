@@ -16,34 +16,25 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
 # Authoritative formatting hint for Claude when output is going to Telegram.
-# Sourced from https://core.telegram.org/bots/api#html-style — Telegram's HTML
-# parser only accepts the tags listed here; anything else (h1-h6, br, p, div,
-# ul, ol, li, hr, img, table, …) is rejected and the message fails to render.
+# Strategy: tell Claude to write in plain Markdown (which it does naturally and
+# correctly without over-escaping), and let the host convert the result to the
+# strict HTML subset Telegram accepts. Telling Claude to write HTML directly
+# tends to cause over-escaping (Claude writes &lt;b&gt; instead of <b>) because
+# of the "escape <, >, &" rule, leaving literal "<b>" visible in the chat.
 TELEGRAM_HTML_HINT = (
-    "Your output will be posted to Telegram with parse_mode=HTML. "
-    "Telegram accepts ONLY this exact subset of HTML — no other tags exist:\n"
-    "  <b>bold</b> / <strong>bold</strong>\n"
-    "  <i>italic</i> / <em>italic</em>\n"
-    "  <u>underline</u> / <ins>underline</ins>\n"
-    "  <s>strike</s> / <strike>strike</strike> / <del>strike</del>\n"
-    "  <tg-spoiler>spoiler</tg-spoiler> or <span class=\"tg-spoiler\">spoiler</span>\n"
-    "  <a href=\"https://example.com\">link text</a>\n"
-    "  <code>inline code</code>\n"
-    "  <pre>preformatted block</pre>\n"
-    "  <pre><code class=\"language-python\">code with language</code></pre>\n"
-    "  <blockquote>quote</blockquote> or <blockquote expandable>collapsible quote</blockquote>\n"
-    "Rules:\n"
-    "  - Do NOT emit <h1>..<h6>, <p>, <div>, <br>, <hr>, <ul>, <ol>, <li>, "
-    "<img>, <table>, or any tag not in the list above. Use <b> for headings; "
-    "use plain newlines for line breaks; use '• ' as a bullet prefix on its own line.\n"
-    "  - Do NOT use Markdown (**bold**, *italic*, `code`, ## heading, - bullet, "
-    "[label](url), etc.). Use the HTML tags above instead.\n"
-    "  - Escape literal &, <, > as &amp;, &lt;, &gt; in regular text. Inside "
-    "<code> and <pre> the same escaping applies.\n"
-    "  - Code language goes ONLY on <pre><code class=\"language-XXX\">, never "
-    "as an attribute on <pre> directly.\n"
-    "  - Tags can nest (<b><i>both</i></b>) but must be properly closed.\n"
-    "Keep responses concise but readable."
+    "Your output will be posted to a Telegram chat. Format using STANDARD "
+    "MARKDOWN — the host will convert your output to Telegram-compatible HTML "
+    "automatically. Use:\n"
+    "  **bold**, *italic* (or _italic_), ~~strikethrough~~\n"
+    "  `inline code`, ```language\\nfenced code block\\n```\n"
+    "  # / ## / ### headings (rendered as bold — Telegram has no h1..h6)\n"
+    "  > blockquoted line\n"
+    "  - bulleted list item (rendered as • since Telegram has no <ul>/<li>)\n"
+    "  [link text](https://example.com)\n"
+    "Do NOT write raw HTML tags yourself — write Markdown and let the converter "
+    "produce the HTML. Do NOT pre-escape characters with &amp;/&lt;/&gt; in "
+    "regular prose; the converter escapes literals safely. Keep responses "
+    "concise but readable."
 )
 
 
@@ -70,8 +61,22 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+_SUPPORTED_HTML_RE = re.compile(
+    r"</?(?:b|strong|i|em|u|ins|s|strike|del|tg-spoiler|code|pre|blockquote)>"
+    r"|<blockquote\s+expandable>"
+    r'|<span\s+class="tg-spoiler">|</span>'
+    r'|<a\s+href="[^"<>]*">|</a>'
+    r'|<pre><code\s+class="language-[A-Za-z0-9_+-]+">|</code></pre>',
+    re.IGNORECASE,
+)
+
+
 def md_to_tg_html(text: str) -> str:
-    """Convert Markdown-ish text to the HTML subset Telegram accepts."""
+    """Convert Markdown-ish text to the HTML subset Telegram accepts.
+
+    If Claude already wrote valid Telegram HTML tags, they pass through.
+    Anything not in the supported set gets escaped to literal text.
+    """
     if not text:
         return ""
 
@@ -80,6 +85,9 @@ def md_to_tg_html(text: str) -> str:
     def stash(html: str) -> str:
         placeholders.append(html)
         return _PLACEHOLDER.format(len(placeholders) - 1)
+
+    # 0. preserve already-valid Telegram HTML tags so they aren't escaped later
+    text = _SUPPORTED_HTML_RE.sub(lambda m: stash(m.group(0)), text)
 
     # 1. fenced code blocks ```lang\n...\n```
     def _fence(m: re.Match) -> str:
