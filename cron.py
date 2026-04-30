@@ -50,15 +50,9 @@ HISTORY_ROOT = CRON_DIR / "history"
 TELEGRAM_MESSAGES_FILE = CRON_DIR / "telegram_messages.json"
 TELEGRAM_MODE = os.environ.get("CLAUDEBOX_MODE_TELEGRAM", "") == "1"
 
-TELEGRAM_OUTPUT_HINT = (
-    "Your final result will be posted to a Telegram chat. "
-    "Format using Telegram HTML: <b>bold</b>, <i>italic</i>, <u>underline</u>, "
-    "<s>strikethrough</s>, <code>inline code</code>, "
-    '<pre language=\"python\">code blocks</pre>, <blockquote>quotes</blockquote>. '
-    "Do NOT use markdown — no *, _, `, #, - bullets. Use HTML tags only. "
-    "Escape &, < and > as &amp; &lt; &gt; in regular text. "
-    "Keep the response concise but readable."
-)
+from telegram_utils import TELEGRAM_HTML_HINT  # noqa: E402  (after env reads)
+
+TELEGRAM_OUTPUT_HINT = TELEGRAM_HTML_HINT
 
 _running_jobs: dict[str, threading.Thread] = {}
 _running_lock = threading.Lock()
@@ -214,7 +208,7 @@ def _save_telegram_message(message_id: int, job: dict[str, Any], fired_at: datet
 
 
 def _notify_telegram(job: dict[str, Any], activity_path: Path, rc: int, fired_at: datetime) -> None:
-    from telegram_utils import BOT_TOKEN, make_bot, send_long
+    from telegram_utils import BOT_TOKEN, make_bot, md_to_tg_html, send_long
 
     chat_id = job.get("telegram_chat_id")
     if not chat_id:
@@ -224,12 +218,13 @@ def _notify_telegram(job: dict[str, Any], activity_path: Path, rc: int, fired_at
         return
 
     result = _extract_result(activity_path)
+    header = f"<b>[{job['name']}]</b>"
     if result:
-        text = f"<b>[{job['name']}]</b>\n{result}"
+        text = f"{header}\n{md_to_tg_html(result)}"
     elif rc != 0:
-        text = f"<b>[{job['name']}]</b> job failed (rc={rc})"
+        text = f"{header} job failed (rc={rc})"
     else:
-        text = f"<b>[{job['name']}]</b> finished (no output)"
+        text = f"{header} finished (no output)"
 
     async def _send() -> list:
         bot = make_bot()

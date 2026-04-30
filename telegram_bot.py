@@ -14,7 +14,7 @@ import yaml
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.constants import ChatAction, MessageLimit
 
-from telegram_utils import BOT_TOKEN, send_long as _send_long_util
+from telegram_utils import BOT_TOKEN, TELEGRAM_HTML_HINT, md_to_tg_html, send_long as _send_long_util
 
 from telegram.ext import (  # isort: skip
     Application,
@@ -154,16 +154,12 @@ def _resolve_workspace(chat_cfg: dict) -> str:
 
 
 TELEGRAM_SYSTEM_HINT = (
-    "You are responding via Telegram. Keep responses concise but pretty. "
-    "Format using Telegram HTML: <b>bold</b>, <i>italic</i>, <u>underline</u>, "
-    "<s>strikethrough</s>, <code>inline code</code>, "
-    '<pre language="python">code blocks</pre>, <blockquote>quotes</blockquote>. '
-    "Do NOT use markdown — no *, _, `, #, - bullets. Use HTML tags only. "
-    "Escape &, < and > as &amp; &lt; &gt; in regular text. "
-    "When the user asks you to send/share a file, image, or video, "
-    "include [SEND_FILE: relative/path] in your response and it will "
-    "be delivered as a Telegram attachment. You can include multiple tags. "
-    "The tag is stripped from the message before delivery."
+    TELEGRAM_HTML_HINT
+    + "\n\nFile attachments: when the user asks you to send/share a file, image, "
+    "or video, include [SEND_FILE: relative/path] anywhere in your response and "
+    "it will be delivered as a Telegram attachment (image as photo, video as "
+    "video, otherwise as document). Multiple tags are allowed. The tag itself "
+    "is stripped from the visible message before delivery."
 )
 
 
@@ -241,6 +237,8 @@ def _build_env() -> dict:
 
 
 async def _send_long(bot, chat_id: int, text: str, parse_mode: str = "HTML") -> None:
+    if parse_mode == "HTML":
+        text = md_to_tg_html(text)
     await _send_long_util(bot, chat_id, text, parse_mode)
 
 
