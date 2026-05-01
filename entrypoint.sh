@@ -250,13 +250,17 @@ if [ "$_mode_telegram" = "1" ] && [ "$_mode_cron" = "1" ]; then
 	chown -R claude:claude /home/claude/.claude/cron 2>/dev/null || true
 	CLAUDE_UID=$(id -u claude)
 	CLAUDE_GID=$(id -g claude)
+	# NOTE: use `;` to terminate the exports so they run in the *current* shell.
+	# `cmd1 && cmd2 && python3 cron.py &` would bind the entire `&&` chain into
+	# a backgrounded subshell — the exports would never reach the foreground
+	# telegram_bot.py process, leaving HOME=/root and breaking shared file paths.
 	COMBINED_ENV="export HOME=/home/claude"
-	COMBINED_ENV="$COMBINED_ENV && export CLAUDE_CONFIG_DIR=/home/claude/.claude"
-	COMBINED_ENV="$COMBINED_ENV && export CLAUDEBOX_MODE_CRON_FILE=$(printf '%q' "$_mode_cron_file")"
-	COMBINED_ENV="$COMBINED_ENV && export CLAUDEBOX_WORKSPACE=$(printf '%q' "${CLAUDE_WORKSPACE:-/workspace}")"
-	COMBINED_ENV="$COMBINED_ENV && export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH"
+	COMBINED_ENV="$COMBINED_ENV; export CLAUDE_CONFIG_DIR=/home/claude/.claude"
+	COMBINED_ENV="$COMBINED_ENV; export CLAUDEBOX_MODE_CRON_FILE=$(printf '%q' "$_mode_cron_file")"
+	COMBINED_ENV="$COMBINED_ENV; export CLAUDEBOX_WORKSPACE=$(printf '%q' "${CLAUDE_WORKSPACE:-/workspace}")"
+	COMBINED_ENV="$COMBINED_ENV; export PATH=/home/claude/.claude/bin:/home/claude/.local/bin:\$PATH"
 	exec setpriv --reuid="$CLAUDE_UID" --regid="$CLAUDE_GID" --init-groups \
-		bash -c "$COMBINED_ENV && python3 /home/claude/cron.py & CRON_PID=\$! && trap 'kill \$CRON_PID 2>/dev/null' EXIT INT TERM && python3 /home/claude/telegram_bot.py"
+		bash -c "$COMBINED_ENV; python3 /home/claude/cron.py & CRON_PID=\$!; trap 'kill \$CRON_PID 2>/dev/null' EXIT INT TERM; python3 /home/claude/telegram_bot.py"
 fi
 
 # api mode — run fastapi server instead of claude

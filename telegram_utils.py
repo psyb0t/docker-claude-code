@@ -152,7 +152,12 @@ def md_to_tg_html(text: str) -> str:
     def _restore(m: re.Match) -> str:
         return placeholders[int(m.group(1))]
 
-    text = re.sub(r"CB(\d+)", _restore, text)
+    sentinel_re = re.compile(r"CB(\d+)")
+    for _ in range(len(placeholders) + 1):
+        new_text = sentinel_re.sub(_restore, text)
+        if new_text == text:
+            break
+        text = new_text
 
     return text
 

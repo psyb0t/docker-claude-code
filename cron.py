@@ -182,7 +182,13 @@ def _extract_result(activity_path: Path) -> str | None:
     return result
 
 
-def _save_telegram_message(message_id: int, job: dict[str, Any], fired_at: datetime, result: str | None) -> None:
+def _save_telegram_message(
+    message_id: int,
+    job: dict[str, Any],
+    fired_at: datetime,
+    result: str | None,
+    history_dir: str | None = None,
+) -> None:
     try:
         data: dict[str, Any] = {}
         if TELEGRAM_MESSAGES_FILE.exists():
@@ -195,6 +201,7 @@ def _save_telegram_message(message_id: int, job: dict[str, Any], fired_at: datet
             "fired_at": fired_at.isoformat(),
             "instruction": job["instruction"][:500],
             "result": (result or "")[:2000],
+            "history_dir": history_dir,
         }
         if len(data) > 200:
             for k in list(data.keys())[:-200]:
@@ -233,8 +240,21 @@ def _notify_telegram(job: dict[str, Any], activity_path: Path, rc: int, fired_at
     try:
         messages = asyncio.run(_send())
         log.info("[%s] telegram notification sent to %s", job["name"], chat_id)
-        if TELEGRAM_MODE and messages:
-            _save_telegram_message(messages[0].message_id, job, fired_at, result)
+        if messages:
+            history_dir = str(activity_path.parent)
+            message_ids = [m.message_id for m in messages]
+            try:
+                (activity_path.parent / "telegram.json").write_text(
+                    json.dumps({
+                        "chat_id": chat_id,
+                        "message_id": message_ids[0],
+                        "message_ids": message_ids,
+                    }, indent=2)
+                )
+            except OSError as e:
+                log.warning("[%s] failed to write telegram.json: %s", job["name"], e)
+            if TELEGRAM_MODE:
+                _save_telegram_message(messages[0].message_id, job, fired_at, result, history_dir)
     except Exception as e:
         log.warning("[%s] telegram notify failed: %s", job["name"], e)
 

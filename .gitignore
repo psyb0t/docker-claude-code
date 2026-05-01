@@ -5,6 +5,7 @@ __pycache__
 git-update.sh
 docker-compose.dev.yaml
 tests/.env
+tests/logs/
 tests/.tmp-*/
 tests/.fixtures/mounts/*
 !tests/.fixtures/mounts/.gitkeep

@@ -433,18 +433,76 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     prompt = text
     is_cron_reply = False
-    if IS_CRON_MODE and msg and msg.reply_to_message:
-        entry = _load_cron_message(msg.reply_to_message.message_id)
-        if entry:
+    if msg and msg.reply_to_message:
+        replied = msg.reply_to_message
+        cron_entry = (
+            _load_cron_message(replied.message_id) if IS_CRON_MODE else None
+        )
+        if cron_entry:
+            history_dir = cron_entry.get("history_dir")
+            history_block = ""
+            if history_dir:
+                history_block = (
+                    f"Full run history is on disk at {history_dir!r}. "
+                    f"That directory contains activity.jsonl (full Claude stream output), "
+                    f"stderr.log, meta.json (job metadata), and telegram.json "
+                    f"(chat_id + message_id of the notification). "
+                    f"Read those files with the Read tool if you need more context "
+                    f"than the truncated summary below.\n"
+                )
             prompt = (
-                f"[Replying to cron job <b>{entry['job_name']}</b> "
-                f"that ran at {entry['fired_at']}]\n"
-                f"Job instruction: {entry['instruction']}\n"
-                f"Job result: {entry['result']}\n\n"
+                f"[Replying to cron job <b>{cron_entry['job_name']}</b> "
+                f"that ran at {cron_entry['fired_at']}]\n"
+                f"{history_block}"
+                f"Job instruction (truncated): {cron_entry['instruction']}\n"
+                f"Job result (truncated): {cron_entry['result']}\n\n"
                 f"User follow-up: {text}"
             )
             is_cron_reply = True
-            logger.info("chat %s reply to cron job %s (no-continue)", chat.id, entry["job_name"])
+            logger.info(
+                "chat %s reply to cron job %s history_dir=%s (no-continue)",
+                chat.id,
+                cron_entry["job_name"],
+                history_dir,
+            )
+        else:
+            quoted = replied.text or replied.caption or ""
+            author = (
+                "the bot (you)"
+                if replied.from_user and replied.from_user.is_bot
+                else "the user themselves"
+            )
+            kind_bits = []
+            if replied.photo:
+                kind_bits.append("photo")
+            if replied.video:
+                kind_bits.append("video")
+            if replied.document:
+                kind_bits.append(f"document ({replied.document.file_name or 'unnamed'})")
+            if replied.sticker:
+                kind_bits.append(
+                    f"sticker ({replied.sticker.emoji or ''} from set {replied.sticker.set_name or '?'})"
+                )
+            if replied.voice:
+                kind_bits.append("voice message")
+            if replied.audio:
+                kind_bits.append("audio")
+            if replied.animation:
+                kind_bits.append("animation/gif")
+            kind = ", ".join(kind_bits) if kind_bits else ("text" if quoted else "non-text")
+            quoted_block = f"Quoted text:\n{quoted}\n" if quoted else "(no text content in the quoted message)\n"
+            prompt = (
+                f"[The user is replying to an earlier message (id={replied.message_id}) from {author}]\n"
+                f"Quoted message kind: {kind}\n"
+                f"{quoted_block}\n"
+                f"User follow-up: {text}"
+            )
+            logger.info(
+                "chat %s reply to message %s kind=%s",
+                chat.id,
+                replied.message_id,
+                kind,
+            )
 
     await _run_prompt(update, context, prompt, use_continue=not is_cron_reply)
 
