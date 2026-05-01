@@ -54,7 +54,7 @@ def _strip_html(text: str) -> str:
 # spans, then headings/quotes/links/list bullets, escaping literals along the
 # way. Output is safe to send with parse_mode=HTML.
 
-_PLACEHOLDER = "\x00CB{}\x00"
+_PLACEHOLDER = "CB{}"
 
 
 def _esc(s: str) -> str:
@@ -142,14 +142,17 @@ def md_to_tg_html(text: str) -> str:
     text = re.sub(r"(?m)^([ \t]*)[-*+][ \t]+", lambda m: f"{m.group(1)}• ", text)
 
     # 10. now escape everything that is left (literal text only — placeholders
-    #     are still raw \x00CB{n}\x00 sentinels, untouched by escaping)
+    #     are still raw CB{n} sentinels, untouched by escaping.
+    #     Using Unicode private-use chars instead of NUL because NUL bytes get
+    #     stripped somewhere in the python-telegram-bot/HTTP/Telegram pipeline,
+    #     leaving the bare "CB0" leak as visible text.
     text = _esc(text)
 
     # 11. restore placeholders with their pre-built (already-escaped) HTML
     def _restore(m: re.Match) -> str:
         return placeholders[int(m.group(1))]
 
-    text = re.sub(r"\x00CB(\d+)\x00", _restore, text)
+    text = re.sub(r"CB(\d+)", _restore, text)
 
     return text
 
