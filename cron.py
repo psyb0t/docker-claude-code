@@ -259,6 +259,37 @@ def _notify_telegram(job: dict[str, Any], activity_path: Path, rc: int, fired_at
         log.warning("[%s] telegram notify failed: %s", job["name"], e)
 
 
+def _previous_run_dir(workspace_slug: str, name: str, current_dir: Path) -> Path | None:
+    """Most recent prior history dir for this job in this workspace, or None."""
+    parent = HISTORY_ROOT / workspace_slug
+    if not parent.is_dir():
+        return None
+    candidates = [
+        p for p in parent.glob(f"*-{name}")
+        if p.is_dir() and p != current_dir
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.name)
+
+
+def _build_history_hint(workspace_slug: str, name: str, current_dir: Path) -> str | None:
+    prev = _previous_run_dir(workspace_slug, name, current_dir)
+    if not prev:
+        return None
+    pattern = str(HISTORY_ROOT / workspace_slug / f"*-{name}")
+    return (
+        f"Prior runs of this same cron job ({name!r}) are on disk. "
+        f"Most recent prior run: {str(prev)!r} (contains activity.jsonl with the "
+        f"full Claude stream, stderr.log, meta.json, and telegram.json if a "
+        f"notification was sent). "
+        f"Older runs match the glob {pattern!r} (timestamp-prefixed, sort "
+        f"lexicographically = chronologically). "
+        f"Use the Read/Glob tools to inspect them if comparing against past "
+        f"output is useful for this run; otherwise ignore."
+    )
+
+
 def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> None:
     name = job["name"]
     ts = fired_at.strftime("%Y%m%d-%H%M%S")
@@ -276,6 +307,12 @@ def _run_job(job: dict[str, Any], fired_at: datetime, workspace_slug: str) -> No
     instruction = _expand(job["instruction"], fired_at, name)
     system_prompt = _expand(job["system_prompt"], fired_at, name) if job.get("system_prompt") else None
     append_system_prompt = _expand(job["append_system_prompt"], fired_at, name) if job.get("append_system_prompt") else None
+
+    history_hint = _build_history_hint(workspace_slug, name, job_dir)
+    if history_hint:
+        append_system_prompt = (
+            (append_system_prompt + "\n\n") if append_system_prompt else ""
+        ) + history_hint
 
     if job.get("telegram_chat_id"):
         append_system_prompt = (

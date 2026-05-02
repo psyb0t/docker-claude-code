@@ -12,7 +12,7 @@ from typing import Optional
 
 import yaml
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
-from telegram.constants import ChatAction, MessageLimit
+from telegram.constants import ChatAction
 
 from telegram_utils import BOT_TOKEN, TELEGRAM_HTML_HINT, md_to_tg_html, send_long as _send_long_util
 
