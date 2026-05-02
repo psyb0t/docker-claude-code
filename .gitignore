@@ -13,3 +13,4 @@ tests/.fixtures/cron-*/
 .e2e-cron-tg/
 base/
 desc.txt
+pyrightconfig.json
