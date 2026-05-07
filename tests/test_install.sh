@@ -70,7 +70,6 @@ test_install_minimal_end_to_end() {
         -v "$host_dir:$host_dir" \
         -e HOME="$host_dir/home" \
         -e CLAUDEBOX_MINIMAL=1 \
-        -e CLAUDEBOX_SKIP_PULL=1 \
         -e CLAUDEBOX_ENV_CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
         -e TEST_HOST_DIR="$host_dir" \
         -e TEST_MODEL="$TEST_MODEL" \

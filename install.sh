@@ -35,15 +35,8 @@ fi
 CLAUDE_TAG="latest"
 _minimal="${CLAUDEBOX_MINIMAL:-${CLAUDE_MINIMAL:-}}"
 [ -n "$_minimal" ] && CLAUDE_TAG="latest-minimal"
-if [ "${CLAUDEBOX_SKIP_PULL:-}" = "1" ]; then
-	echo "📦 Skipping image pull (CLAUDEBOX_SKIP_PULL=1)"
-elif docker image inspect "psyb0t/claudebox:$CLAUDE_TAG" >/dev/null 2>&1; then
-	echo "📦 Image psyb0t/claudebox:$CLAUDE_TAG already present locally, skipping pull (set CLAUDEBOX_FORCE_PULL=1 to override)"
-	[ "${CLAUDEBOX_FORCE_PULL:-}" = "1" ] && docker pull "psyb0t/claudebox:$CLAUDE_TAG"
-else
-	echo "📦 Pulling Claude Code image (tag: $CLAUDE_TAG)..."
-	docker pull "psyb0t/claudebox:$CLAUDE_TAG"
-fi
+echo "📦 Pulling Claude Code image (tag: $CLAUDE_TAG)..."
+docker pull "psyb0t/claudebox:$CLAUDE_TAG"
 
 # get wrapper.sh — from same dir if running locally, otherwise download from GitHub
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-/dev/null}")" 2>/dev/null && pwd)"

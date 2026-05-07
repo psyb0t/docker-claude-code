@@ -46,12 +46,14 @@ The install script pulls the Docker image, generates SSH keys for git operations
 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
 
 # minimal image (just the essentials — Claude installs what it needs on the fly)
-CLAUDEBOX_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
+export CLAUDEBOX_MINIMAL=1 && curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
 
 # custom binary name (e.g. if you want to call it 'claude' instead of 'claudebox')
 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash -s -- claude
-# or: CLAUDEBOX_BIN_NAME=claude curl -fsSL .../install.sh | bash
+# or: export CLAUDEBOX_BIN_NAME=claude && curl -fsSL .../install.sh | bash
 ```
+
+> **Heads up on env vars:** `VAR=x curl … | bash` does **not** set `VAR` for the install script — bash semantics attach the var to `curl` only. Always `export` the var first (or put it on the `bash` side of the pipe).
 
 ### Manual setup
 
@@ -89,7 +91,7 @@ curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/inst
 Just enough to run Claude: Ubuntu, git, curl, Node.js, and Docker. Claude has passwordless sudo, so it will install whatever else it needs on the fly via `apt-get`, `pip`, `npm`, etc. Smaller image to pull, but the first run takes longer as Claude sorts out its dependencies.
 
 ```bash
-CLAUDEBOX_MINIMAL=1 curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
+export CLAUDEBOX_MINIMAL=1 && curl -fsSL https://raw.githubusercontent.com/psyb0t/docker-claudebox/master/install.sh | bash
 ```
 
 Use `~/.claude/init.d/*.sh` hooks (see [Init Hooks](docs/customization.md#init-hooks-claudeinitd)) to pre-install your tools on first container create so Claude doesn't burn tokens figuring out package management.
