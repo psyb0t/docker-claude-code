@@ -372,6 +372,111 @@ test_api_openai_continue_header() {
     _api_stop "${API_CONTAINER}-oai-cont"
 }
 
+# ── OpenAI rejects unsupported features (tools / tool_choice / json_object) ──
+#
+# The wrapper can't honor these, so silently dropping them would mislead clients.
+# Each case must yield 400 with a hint that points at /run instead.
+#
+# format: label|body|expected_in_error_body
+OAI_REJECT_CASES=(
+    "tools field|{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"x\",\"parameters\":{}}}]}|tools/tool_choice not supported"
+    "tool_choice field|{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tool_choice\":\"auto\"}|tools/tool_choice not supported"
+    "response_format json_object|{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"response_format\":{\"type\":\"json_object\"}}|response_format=json_object not supported"
+)
+
+test_api_openai_rejects_unsupported() {
+    _api_start "${API_CONTAINER}-oai-rej" || return 1
+
+    local entry label body expected
+    for entry in "${OAI_REJECT_CASES[@]}"; do
+        IFS='|' read -r label body expected <<< "$entry"
+        local code body_out
+        code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/openai/v1/chat/completions" \
+            -H "Content-Type: application/json" -d "$body")
+        assert_eq "$code" "400" "openai reject $label (status)" || { _api_stop "${API_CONTAINER}-oai-rej"; return 1; }
+
+        body_out=$(curl -s -X POST "$API_BASE/openai/v1/chat/completions" \
+            -H "Content-Type: application/json" -d "$body")
+        assert_contains "$body_out" "$expected" "openai reject $label (hint)" || { _api_stop "${API_CONTAINER}-oai-rej"; return 1; }
+    done
+
+    # response_format=text (or any non-json_object) must still be accepted
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_BASE/openai/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly RFTEXT\"}],\"response_format\":{\"type\":\"text\"}}")
+    assert_eq "$code" "200" "openai accepts response_format=text" || { _api_stop "${API_CONTAINER}-oai-rej"; return 1; }
+
+    echo "OK: api_openai_rejects_unsupported (${#OAI_REJECT_CASES[@]} cases)"
+    _api_stop "${API_CONTAINER}-oai-rej"
+}
+
+# ── OpenAI finish_reason mapping (was hardcoded "stop", now plumbed) ─────────
+#
+# Verifies the non-stream and streaming paths both surface a real finish_reason
+# field. We don't try to force max_tokens here (model-specific and flaky); we
+# just assert finish_reason is present and is one of the OpenAI-spec values.
+test_api_openai_finish_reason() {
+    _api_start "${API_CONTAINER}-oai-fr" || return 1
+
+    # non-stream
+    local out fr
+    out=$(post "$API_BASE/openai/v1/chat/completions" \
+        "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly FROK\"}]}")
+    assert_contains "$out" "FROK" "openai finish_reason: non-stream produced response" || { _api_stop "${API_CONTAINER}-oai-fr"; return 1; }
+    assert_contains "$out" '"finish_reason"' "openai finish_reason: field present" || { _api_stop "${API_CONTAINER}-oai-fr"; return 1; }
+
+    fr=$(echo "$out" | python3 -c "import json,sys; print(json.load(sys.stdin)['choices'][0]['finish_reason'])")
+    case "$fr" in
+        stop|length|tool_calls|content_filter)
+            echo "  OK: openai finish_reason: value '$fr' is openai-spec"
+            ;;
+        *)
+            echo "  FAIL: openai finish_reason: got '$fr', expected one of stop/length/tool_calls/content_filter"
+            _api_stop "${API_CONTAINER}-oai-fr"
+            return 1
+            ;;
+    esac
+
+    # streaming — final chunk before [DONE] must carry finish_reason
+    local stream
+    stream=$(curl -sf -X POST "$API_BASE/openai/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"respond with exactly FRSTREAM\"}],\"stream\":true}")
+    assert_contains "$stream" "FRSTREAM" "openai finish_reason stream: produced response" || { _api_stop "${API_CONTAINER}-oai-fr"; return 1; }
+    assert_contains "$stream" '"finish_reason":"stop"' "openai finish_reason stream: final chunk has finish_reason=stop" || { _api_stop "${API_CONTAINER}-oai-fr"; return 1; }
+
+    echo "OK: api_openai_finish_reason"
+    _api_stop "${API_CONTAINER}-oai-fr"
+}
+
+# ── OpenAI multi-turn + workspace header (regression) ────────────────────────
+#
+# The wrapper used to write the multi-turn conversation file at a *relative*
+# path (_oai_uploads/conv_N.json), which broke whenever the request also set
+# a workspace header — claude's cwd then was /workspaces/<ws>, so the relative
+# read resolved to the wrong place and the assistant got an empty conversation.
+# Fix: prompt now embeds an absolute path under _OAI_UPLOAD_DIR. This test is
+# the regression: 3-message thread + workspace header must still recall the
+# original keyword.
+test_api_openai_multiturn_workspace() {
+    _api_start "${API_CONTAINER}-oai-mtw" || return 1
+
+    local out
+    out=$(curl -sf -X POST "$API_BASE/openai/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "X-Claude-Workspace: mtwsws" \
+        -d "{\"model\":\"$TEST_MODEL\",\"messages\":[
+            {\"role\":\"user\",\"content\":\"the secret password is QUINOA42\"},
+            {\"role\":\"assistant\",\"content\":\"got it\"},
+            {\"role\":\"user\",\"content\":\"reply with exactly the password I told you, nothing else\"}
+        ]}")
+    assert_contains "$out" "QUINOA42" "openai multiturn+workspace: recalls earlier turn" || { _api_stop "${API_CONTAINER}-oai-mtw"; return 1; }
+
+    echo "OK: api_openai_multiturn_workspace"
+    _api_stop "${API_CONTAINER}-oai-mtw"
+}
+
 # ── MCP server ───────────────────────────────────────────────────────────────
 
 _MCP_ACCEPT="Accept: application/json, text/event-stream"
@@ -767,6 +872,9 @@ ALL_TESTS+=(
     test_api_openai_stream
     test_api_openai_workspace_header
     test_api_openai_continue_header
+    test_api_openai_rejects_unsupported
+    test_api_openai_finish_reason
+    test_api_openai_multiturn_workspace
     test_api_mcp_init
     test_api_mcp_tools_list
     test_api_mcp_claude_run

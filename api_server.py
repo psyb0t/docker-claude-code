@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 
 import asyncio
+import base64
+import ipaddress
 import json
 import logging
+import mimetypes
 import os
 import signal
+import socket
 import time
+import urllib.parse
+import urllib.request
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional, Union
@@ -46,10 +52,11 @@ _purge_task_started = False
 @asynccontextmanager
 async def _lifespan(app):
     global _purge_task_started
-    purge_task = None
+    purge_tasks: list[asyncio.Task] = []
     if not _purge_task_started:
         _purge_task_started = True
-        purge_task = asyncio.create_task(_purge_stale_results())
+        purge_tasks.append(asyncio.create_task(_purge_stale_results()))
+        purge_tasks.append(asyncio.create_task(_purge_stale_oai_uploads()))
     try:
         if _mcp_lifespan_cm:
             async with _mcp_lifespan_cm:
@@ -57,8 +64,8 @@ async def _lifespan(app):
         else:
             yield
     finally:
-        if purge_task:
-            purge_task.cancel()
+        for task in purge_tasks:
+            task.cancel()
 
 
 app = FastAPI(lifespan=_lifespan)
@@ -170,6 +177,32 @@ async def _purge_stale_results():
         for rid in stale:
             log.info("purging stale run result: %s", rid)
             run_results.pop(rid, None)
+
+
+async def _purge_stale_oai_uploads():
+    """Background task: purge openai-wrapper upload/conv files older than TTL.
+
+    Each /openai/v1/chat/completions multi-turn or multimodal request drops a
+    file under /workspaces/_oai_uploads/. Without GC the dir grows forever.
+    """
+    upload_dir = os.path.join(ROOT_WORKSPACE, "_oai_uploads")
+    while True:
+        await asyncio.sleep(3600)  # hourly
+        now = time.time()
+        if not os.path.isdir(upload_dir):
+            continue
+        try:
+            entries = os.listdir(upload_dir)
+        except OSError:
+            continue
+        for entry in entries:
+            fpath = os.path.join(upload_dir, entry)
+            try:
+                if now - os.path.getmtime(fpath) > _OAI_UPLOAD_TTL:
+                    os.remove(fpath)
+                    log.info("purged stale oai upload: %s", entry)
+            except OSError:
+                continue
 
 
 def _check_auth(authorization: Optional[str]):
@@ -323,6 +356,9 @@ async def _run_claude_text(
         try:
             parsed = json.loads(line)
             usage = parsed.get("usage", {})
+            stop_reason = parsed.get("stop_reason")
+            if stop_reason:
+                usage["_stop_reason"] = stop_reason
             result = parsed.get("result", text)
             log.debug("_run_claude_text done, result=%d chars", len(result))
             return result, usage
@@ -685,14 +721,16 @@ class _OAIMessage(BaseModel):
 
 
 class _OAIRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     model: str = "claude"
     messages: list[_OAIMessage]
     stream: bool = False
-    max_tokens: Optional[int] = None
-    temperature: Optional[float] = None
     reasoning_effort: Optional[str] = Field(None, alias="reasoningEffort")
+    # explicitly captured so we can 400 instead of silently dropping
+    tools: Optional[Any] = None
+    tool_choice: Optional[Any] = None
+    response_format: Optional[dict] = None
 
 
 _OAI_MODELS = [
@@ -703,73 +741,125 @@ _OAI_MODELS = [
 ]
 
 
-import base64  # noqa: E402
-import mimetypes  # noqa: E402
-
 _OAI_UPLOAD_DIR = os.path.join(ROOT_WORKSPACE, "_oai_uploads")
-_oai_upload_counter = 0
+_OAI_UPLOAD_TTL = 24 * 3600  # 24 hours
+_OAI_REMOTE_IMAGE_TIMEOUT = 30
+_OAI_REMOTE_IMAGE_MAX_BYTES = 50 * 1024 * 1024  # 50MB
 
 
-import urllib.request  # noqa: E402
+# claude → openai finish_reason mapping. claude emits end_turn / stop_sequence /
+# max_tokens / tool_use; openai expects stop / length / tool_calls / content_filter
+# / function_call. Strict openai SDKs reject unknown enums.
+_OAI_FINISH_REASON_MAP = {
+    "end_turn": "stop",
+    "stop_sequence": "stop",
+    "max_tokens": "length",
+    "tool_use": "tool_calls",
+}
 
 
-def _save_oai_image(url: str) -> Optional[str]:
-    """Save an image from a data: URL, raw base64, or HTTP(S) URL to the workspace."""
-    global _oai_upload_counter
-    os.makedirs(_OAI_UPLOAD_DIR, exist_ok=True)
+def _map_stop_reason(claude_reason: Optional[str]) -> str:
+    if not claude_reason:
+        return "stop"
+    return _OAI_FINISH_REASON_MAP.get(claude_reason, "stop")
 
-    if url.startswith("data:"):
-        header, _, b64 = url.partition(",")
-        mime = header.split(";")[0].replace("data:", "")
-        try:
-            raw = base64.b64decode(b64)
-        except Exception:
-            log.warning("failed to decode base64 image data")
-            return None
-        ext = mimetypes.guess_extension(mime) or ".bin"
-        _oai_upload_counter += 1
-        fname = f"upload_{_oai_upload_counter}{ext}"
-        fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
-        with open(fpath, "wb") as f:
-            f.write(raw)
-        log.info("saved base64 image: %s (%d bytes, %s)", fname, len(raw), mime)
-        return f"_oai_uploads/{fname}"
 
-    if url.startswith(("http://", "https://")):
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "claudebox-api"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                content_type = resp.headers.get("Content-Type", "application/octet-stream")
-                mime = content_type.split(";")[0].strip()
-                raw = resp.read(50 * 1024 * 1024)  # 50MB max
-        except Exception:
-            log.warning("failed to download image from %s", url[:200])
-            return None
-        ext = mimetypes.guess_extension(mime) or os.path.splitext(url.split("?")[0])[1] or ".bin"
-        _oai_upload_counter += 1
-        fname = f"upload_{_oai_upload_counter}{ext}"
-        fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
-        with open(fpath, "wb") as f:
-            f.write(raw)
-        log.info("downloaded image: %s (%d bytes, %s)", fname, len(raw), mime)
-        return f"_oai_uploads/{fname}"
+def _is_safe_remote_url(url: str) -> bool:
+    """SSRF guard: reject URLs that resolve to private/loopback/link-local/etc IPs.
 
-    # raw base64 fallback
+    Defense-in-depth — does not protect against DNS rebinding (the resolver could
+    return a different address on the actual urllib fetch). For the threat model
+    here (untrusted user-supplied image URLs in chat-completions requests) the
+    rebinding risk is acceptable; the goal is to stop trivially unsafe URLs like
+    http://169.254.169.254 (cloud metadata) or http://localhost from succeeding.
+    """
     try:
-        raw = base64.b64decode(url)
-    except Exception:
-        log.warning("failed to decode raw base64 content")
-        return None
-    _oai_upload_counter += 1
-    fname = f"upload_{_oai_upload_counter}.bin"
+        parsed = urllib.parse.urlparse(url)
+    except (ValueError, TypeError):
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    if not parsed.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+            return False
+    return True
+
+
+def _write_oai_upload(raw: bytes, ext: str) -> str:
+    """Write bytes to a uniquely named file under _OAI_UPLOAD_DIR. Returns absolute path."""
+    os.makedirs(_OAI_UPLOAD_DIR, exist_ok=True)
+    fname = f"upload_{uuid.uuid4().hex[:12]}{ext}"
     fpath = os.path.join(_OAI_UPLOAD_DIR, fname)
     with open(fpath, "wb") as f:
         f.write(raw)
-    return f"_oai_uploads/{fname}"
+    log.info("saved oai upload: %s (%d bytes)", fname, len(raw))
+    return fpath
 
 
-def _oai_resolve_content(content: Union[str, list[Any]]) -> Union[str, list[Any]]:
-    """Resolve multimodal content: download/decode images, replace URLs with local paths."""
+def _save_oai_data_uri(url: str) -> Optional[str]:
+    header, _, b64 = url.partition(",")
+    mime = header.split(";")[0].replace("data:", "")
+    try:
+        raw = base64.b64decode(b64)
+    except (ValueError, TypeError):
+        log.warning("failed to decode data: URL")
+        return None
+    ext = mimetypes.guess_extension(mime) or ".bin"
+    return _write_oai_upload(raw, ext)
+
+
+def _fetch_oai_remote_sync(url: str) -> Optional[tuple[bytes, str]]:
+    """Synchronous URL fetch (run via run_in_executor — urllib blocks). Returns (raw, mime)."""
+    if not _is_safe_remote_url(url):
+        log.warning("refusing to fetch image from unsafe URL: %s", url[:200])
+        return None
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "claudebox-api"})
+        with urllib.request.urlopen(req, timeout=_OAI_REMOTE_IMAGE_TIMEOUT) as resp:
+            content_type = resp.headers.get("Content-Type", "application/octet-stream")
+            raw = resp.read(_OAI_REMOTE_IMAGE_MAX_BYTES)
+    except Exception:
+        log.warning("failed to download image from %s", url[:200])
+        return None
+    return raw, content_type.split(";")[0].strip()
+
+
+async def _save_oai_image(url: str) -> Optional[str]:
+    """Save an image from a data: URL or HTTP(S) URL. Returns absolute path on success.
+
+    Raw-base64 fallback was removed — too easy to abuse, and dumping arbitrary
+    decoded bytes into the workspace as upload_*.bin was a footgun.
+    """
+    if url.startswith("data:"):
+        return _save_oai_data_uri(url)
+    if url.startswith(("http://", "https://")):
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, _fetch_oai_remote_sync, url
+        )
+        if not result:
+            return None
+        raw, mime = result
+        ext = (mimetypes.guess_extension(mime)
+               or os.path.splitext(urllib.parse.urlparse(url).path)[1]
+               or ".bin")
+        return _write_oai_upload(raw, ext)
+    log.warning("unsupported image URL scheme")
+    return None
+
+
+async def _oai_resolve_content(content: Union[str, list[Any]]) -> Union[str, list[Any]]:
+    """Resolve multimodal content: download/decode images, replace URLs with absolute local paths."""
     if isinstance(content, str):
         return content
     resolved: list[Any] = []
@@ -784,7 +874,7 @@ def _oai_resolve_content(content: Union[str, list[Any]]) -> Union[str, list[Any]
             url = block.get("image_url", {}).get("url", "")
             if not url:
                 continue
-            saved = _save_oai_image(url)
+            saved = await _save_oai_image(url)
             if saved:
                 resolved.append({"type": "text", "text": f"[See image: {saved}]"})
             continue
@@ -805,14 +895,14 @@ def _oai_content_text_only(content: Union[str, list[Any]]) -> str:
     return "\n".join(parts)
 
 
-def _oai_messages_to_claude(messages: list[_OAIMessage]) -> tuple[str, Optional[str]]:
+async def _oai_messages_to_claude(messages: list[_OAIMessage]) -> tuple[str, Optional[str]]:
     system_parts: list[str] = []
     conv: list[dict] = []
     for msg in messages:
         if msg.role == "system":
             system_parts.append(_oai_content_text_only(msg.content))
             continue
-        conv.append({"role": msg.role, "content": _oai_resolve_content(msg.content)})
+        conv.append({"role": msg.role, "content": await _oai_resolve_content(msg.content)})
 
     system_prompt = "\n".join(system_parts) if system_parts else None
     if not conv:
@@ -823,17 +913,19 @@ def _oai_messages_to_claude(messages: list[_OAIMessage]) -> tuple[str, Optional[
         log.debug("openai: single text message, using direct prompt")
         return conv[0]["content"], system_prompt
 
-    # multi-turn or multimodal — write conversation to file, prompt claude to read it
+    # multi-turn or multimodal — write conversation to a file under _OAI_UPLOAD_DIR
+    # and reference it by ABSOLUTE path. Earlier versions used a relative path,
+    # which broke whenever workspace != ROOT_WORKSPACE because claude's cwd is
+    # the requested workspace, not ROOT_WORKSPACE.
     os.makedirs(_OAI_UPLOAD_DIR, exist_ok=True)
-    conv_file = f"_oai_uploads/conv_{uuid.uuid4().hex[:8]}.json"
-    conv_path = os.path.join(ROOT_WORKSPACE, conv_file)
+    conv_path = os.path.join(_OAI_UPLOAD_DIR, f"conv_{uuid.uuid4().hex[:12]}.json")
     with open(conv_path, "w") as f:
         json.dump(conv, f, indent=2)
-    log.info("openai: multi-turn (%d msgs), wrote conversation to %s", len(conv), conv_file)
+    log.info("openai: multi-turn (%d msgs), wrote conversation to %s", len(conv), conv_path)
     prompt = (
-        f"Read the conversation in {conv_file}. "
+        f"Read the conversation in {conv_path}. "
         "It contains a JSON array of messages with roles (user/assistant). "
-        "Any file paths in [See image: ...] blocks refer to files in the workspace. "
+        "Any file paths in [See image: ...] blocks are absolute paths to files on disk — read them. "
         "Respond to the last user message in the conversation."
     )
     return prompt, system_prompt
@@ -889,7 +981,24 @@ async def openai_chat_completions(
 ):
     _check_auth(authorization)
 
-    prompt, system_prompt = _oai_messages_to_claude(req.messages)
+    # Reject features the wrapper can't honor — silent drop confuses clients.
+    # Anyone needing tool-calling or structured JSON should hit /run with
+    # --json-schema, which is the native claude-code path.
+    if req.tools or req.tool_choice:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "tools/tool_choice not supported by this endpoint — "
+                "claude-code runs its own tools internally; use /run for the native API"
+            ),
+        )
+    if req.response_format and req.response_format.get("type") == "json_object":
+        raise HTTPException(
+            status_code=400,
+            detail="response_format=json_object not supported — use /run with jsonSchema for structured output",
+        )
+
+    prompt, system_prompt = await _oai_messages_to_claude(req.messages)
     if not prompt:
         raise HTTPException(status_code=400, detail="no user message provided")
 
@@ -917,6 +1026,7 @@ async def openai_chat_completions(
         )
         in_tok = usage.get("input_tokens", 0) or usage.get("inputTokens", 0)
         out_tok = usage.get("output_tokens", 0) or usage.get("outputTokens", 0)
+        finish_reason = _map_stop_reason(usage.get("_stop_reason"))
         return {
             "id": cid,
             "object": "chat.completion",
@@ -926,7 +1036,7 @@ async def openai_chat_completions(
                 {
                     "index": 0,
                     "message": {"role": "assistant", "content": text},
-                    "finish_reason": "stop",
+                    "finish_reason": finish_reason,
                 }
             ],
             "usage": {
@@ -949,8 +1059,11 @@ async def openai_chat_completions(
     busy_workspaces[workspace] = None  # type: ignore[assignment]
 
     async def _sse():
+        # model_name is fixed for the entire stream — openai SDKs flag a
+        # mid-stream model change as a protocol violation, so we don't update
+        # this from the assistant events even though claude reports its own id.
         model_name = model
-        finish_reason = "stop"
+        finish_reason: Optional[str] = "stop"
         try:
             proc = await asyncio.create_subprocess_exec(
                 *args,
@@ -962,7 +1075,7 @@ async def openai_chat_completions(
             )
             busy_workspaces[workspace] = proc
 
-            def _chunk(delta: dict, fr=None) -> str:
+            def _chunk(delta: dict, fr: Optional[str] = None) -> str:
                 obj = {
                     "id": cid, "object": "chat.completion.chunk",
                     "created": created, "model": model_name,
@@ -984,18 +1097,13 @@ async def openai_chat_completions(
                     etype = event.get("type", "")
                     if etype == "assistant":
                         msg = event.get("message", {})
-                        m = msg.get("model")
-                        if m:
-                            model_name = m
                         for block in msg.get("content", []):
                             if block.get("type") == "text":
                                 text = block.get("text", "")
                                 if text:
                                     yield _chunk({"content": text})
                     elif etype == "result":
-                        sr = event.get("stop_reason", "")
-                        if sr:
-                            finish_reason = sr
+                        finish_reason = _map_stop_reason(event.get("stop_reason"))
 
             await proc.wait()
             yield _chunk({}, finish_reason)
